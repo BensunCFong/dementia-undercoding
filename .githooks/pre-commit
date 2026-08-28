@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+
+if echo "$staged" | grep -E '\.(csv|tsv|parquet|duckdb|jsonl|ipynb|gz|zip|pkl|feather|arrow|db|sqlite3?)$'; then
+  echo "BLOCKED: data file or notebook staged."
+  exit 1
+fi
+
+if echo "$staged" | grep -E '^data/'; then
+  echo "BLOCKED: file under data/ staged."
+  exit 1
+fi
+
+exit 0
