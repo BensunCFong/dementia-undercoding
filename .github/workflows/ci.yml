@@ -24,8 +24,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check for data files in the repo
         run: |
-          if git ls-files | grep -E '\.(csv|csv\.gz|parquet|duckdb|jsonl)$'; then
-            echo "Data file committed. Remove it and rewrite history before pushing again."
+          if git ls-files | grep -E '\.(csv|tsv|parquet|duckdb|jsonl|ipynb|gz|zip|pkl|feather|arrow|db|sqlite3?)$'; then
+            echo "Data file or notebook committed."
+            exit 1
+          fi
+          if git ls-files | grep -E '^data/'; then
+            echo "Tracked file under data/."
             exit 1
           fi
           echo "Clean."
