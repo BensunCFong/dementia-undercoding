@@ -1,0 +1,24 @@
+# --- DUA PROTECTION: never commit MIMIC data or derivatives ---
+data/
+*.csv
+*.csv.gz
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.jsonl
+notes/
+outputs/samples/
+*.ckpt
+*.safetensors
+adapters/
+# ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+mlruns/

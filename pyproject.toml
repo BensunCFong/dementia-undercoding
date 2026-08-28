@@ -1,0 +1,45 @@
+[project]
+name = "dementia-undercoding"
+version = "0.1.0"
+description = "Is documented cognitive impairment present in clinical notes but absent from diagnosis codes?"
+requires-python = ">=3.11"
+dependencies = [
+  "duckdb>=1.1",
+  "pyyaml>=6.0",
+  "pandas>=2.2",
+  "scikit-learn>=1.5",
+  "lightgbm>=4.5",
+  "scipy>=1.14",
+]
+
+[project.optional-dependencies]
+ml = [
+  "torch>=2.4",
+  "pyspark>=3.5",
+  "delta-spark>=3.2",
+  "transformers>=4.44",
+  "peft>=0.13",
+  "datasets>=3.0",
+  "accelerate>=1.0",
+  "mlflow>=2.16",
+  "azureml-mlflow>=1.57",
+]
+dev = ["pytest>=8.3", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

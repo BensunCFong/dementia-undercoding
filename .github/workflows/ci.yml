@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+
+  # Fails the build if MIMIC data is ever committed.
+  # Cheap insurance against the one mistake that actually matters.
+  no-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for data files in the repo
+        run: |
+          if git ls-files | grep -E '\.(csv|csv\.gz|parquet|duckdb|jsonl)$'; then
+            echo "Data file committed. Remove it and rewrite history before pushing again."
+            exit 1
+          fi
+          echo "Clean."

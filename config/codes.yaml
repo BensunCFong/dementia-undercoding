@@ -1,0 +1,40 @@
+# ICD code sets for weak labelling.
+# Codes are matched by PREFIX against a normalised code:
+#   uppercase, whitespace stripped, dots removed.
+# MIMIC stores codes without decimals and sometimes space-padded, so a
+# literal "331.0" will never match. Always match "3310" as a prefix.
+
+dementia_core:
+  icd9:
+    - "290"    # senile and presenile organic psychotic conditions
+    - "2941"   # dementia in conditions classified elsewhere
+    - "2942"   # dementia, unspecified
+    - "3310"   # Alzheimer's disease
+    - "3311"   # frontotemporal dementia
+    - "33182"  # dementia with Lewy bodies
+  icd10:
+    - "F01"    # vascular dementia
+    - "F02"    # dementia in other diseases classified elsewhere
+    - "F03"    # unspecified dementia
+    - "G30"    # Alzheimer's disease
+    - "G310"   # frontotemporal dementia
+    - "G3183"  # dementia with Lewy bodies
+
+# Broad = core + mild cognitive impairment.
+# Running both is the sensitivity analysis: if the coding gap moves a lot
+# between core and broad, that says something about where clinicians place
+# the diagnostic boundary in practice.
+dementia_broad_extra:
+  icd9:
+    - "33183"  # mild cognitive impairment
+  icd10:
+    - "G3184"  # mild cognitive impairment
+
+# Contrast conditions. Needed to separate chronic documented impairment
+# from acute confusion, the likely dominant false positive.
+delirium:
+  icd9:
+    - "2930"   # delirium due to conditions classified elsewhere
+    - "2931"   # subacute delirium
+  icd10:
+    - "F05"    # delirium due to known physiological condition

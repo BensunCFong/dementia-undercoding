@@ -1,0 +1,49 @@
+paths:
+  mimic_hosp: "data/mimic-iv/hosp"      # admissions.csv.gz, patients.csv.gz, diagnoses_icd.csv.gz
+  mimic_note: "data/mimic-iv-note/note" # discharge.csv.gz
+  duckdb: "data/cohort.duckdb"
+
+cohort:
+  min_age: 18
+  note_type: "DS"      # discharge summaries
+
+split:
+  # patients.anchor_year_group values
+  train: ["2008 - 2010", "2011 - 2013"]
+  test:  ["2017 - 2019"]
+  # 2014-2016 held out entirely: it straddles the ICD-9 to ICD-10
+  # transition and muddies the temporal contrast.
+
+label:
+  set: "core"   # "core" or "broad"
+
+# --- decided after hardware sizing (M1 Max, 32GB unified) ---
+sample:
+  # 50k documents is ample for this question and keeps the fine-tune arm
+  # to an overnight run rather than a multi-day one. Stratified on label
+  # and split so class balance is preserved.
+  n: 50000
+  seed: 20260821
+
+tokens:
+  # Truncation is the DEFAULT, not a shortcut: dementia history almost
+  # always appears early, in HPI and past medical history. Chunking is
+  # run as a comparison to test whether the tail carries signal.
+  strategy: "truncate"   # "truncate" or "chunk"
+  max_len: 512
+  stride: 128
+
+mlflow:
+  # Local file backend by default. Set azure_ml_uri to log runs to a
+  # personal Azure ML workspace instead (free to create, compute unused).
+  # METRICS AND PARAMS ONLY. Never log note text or sample predictions:
+  # the DUA prohibits sending clinical text to third-party services.
+  tracking_uri: "file:./mlruns"
+  azure_ml_uri: null
+  experiment: "dementia-undercoding"
+
+delta:
+  # Cohort written as Delta tables via local PySpark. Real Delta format,
+  # real ACID semantics, no Databricks account and no data leaving the Mac.
+  path: "data/delta"
+  enabled: true
