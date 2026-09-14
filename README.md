@@ -66,6 +66,17 @@ record is downloaded.
 **4. Push and confirm CI is green.** Two jobs run: lint plus tests, and a separate job that fails
 the build if any data file has been committed.
 
+## Setup (part of Step 4)
+
+git clone <repo>
+cd dementia-undercoding
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+git config core.hooksPath .githooks
+pytest -q
+
+
 **5. Only now, download the data.** Place it under `data/` and point `config/config.yaml` at it.
 Nothing in `data/` is ever committed — see `data/.gitignore`.
 
