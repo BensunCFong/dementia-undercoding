@@ -1,21 +1,72 @@
+# Full MIMIC-IV v3.1 + MIMIC-IV-Note v2.2, under the credentialed PhysioNet DUA.
+# For the open-access 100-patient demo, use config/config.demo.yaml instead.
+
 paths:
-  mimic_hosp: "data/mimic-iv/hosp"      # admissions.csv.gz, patients.csv.gz, diagnoses_icd.csv.gz
-  mimic_note: "data/mimic-iv-note/note" # discharge.csv.gz
-  duckdb: "data/cohort.duckdb"
+  # icu/ is not downloaded and not needed.
+  mimic_hosp: "data/raw/mimic-iv-3.1/hosp"
+  mimic_note: "data/raw/mimic-iv-note-2.2/note"
+  # Everything the pipeline writes lands under derived/, never stdout.
+  # data/ is gitignored in full, so nothing here can reach the repo.
+  derived: "data/derived"
+  duckdb: "data/derived/cohort.duckdb"
+
+files:
+  # Filenames relative to the paths above, declared here rather than built
+  # by string concatenation in code, so the shard globs are visible.
+  #
+  # These were exported from BigQuery via `bq extract` rather than pulled
+  # from physionet.org directly (PhysioNet was serving at ~160 KB/s).
+  # BigQuery refuses single-file exports over 1 GB, so prescriptions and
+  # discharge arrive sharded as -000000000000, -000000000001, ... DuckDB
+  # globs these natively; read_csv takes the pattern as-is.
+  hosp:
+    patients: "patients.csv.gz"
+    admissions: "admissions.csv.gz"
+    diagnoses_icd: "diagnoses_icd.csv.gz"
+    d_icd_diagnoses: "d_icd_diagnoses.csv.gz"
+    services: "services.csv.gz"
+    prescriptions: "prescriptions-*.csv.gz"     # 100 shards
+  note:
+    discharge: "discharge-*.csv.gz"             # 7 shards
+    discharge_detail: "discharge_detail.csv.gz"
 
 cohort:
   min_age: 18
   note_type: "DS"      # discharge summaries
 
 split:
-  # patients.anchor_year_group values
+  # Copied VERBATIM from patients.anchor_year_group. The values are
+  # space-separated around the hyphen: "2011 - 2013", not "2011-2013".
+  # Verified against the data: every band is LENGTH 11.
+  #
+  # v3.1 contains FIVE bands. Every one of them must appear in exactly one of
+  # train / test / exclude below. The cohort build asserts this in BOTH
+  # directions: configured bands must exist in patients, AND observed bands
+  # must be accounted for here. A band present in the data but missing from
+  # this config would otherwise fall through to 'excluded' silently, which is
+  # how 2020 - 2022 nearly disappeared without a decision being made.
   train: ["2008 - 2010", "2011 - 2013"]
   test:  ["2017 - 2019"]
-  # 2014-2016 held out entirely: it straddles the ICD-9 to ICD-10
-  # transition and muddies the temporal contrast.
+  exclude:
+    "2014 - 2016": >-
+      Straddles the ICD-9 to ICD-10 transition (US switchover October 2015).
+      Held out to keep the temporal contrast clean rather than harmonised away.
+    "2020 - 2022": >-
+      Present in MIMIC-IV v3.1 but not in MIMIC-IV-Note v2.2, which was built
+      against MIMIC-IV v2.2. Exactly 1 admission in this band has a discharge
+      summary, so there is no text for any arm to read. Excluded on data
+      coverage, not on the COVID confound - though that would also apply.
 
 label:
-  set: "core"   # "core" or "broad"
+  # No "set" key by design. core and broad are materialised as separate
+  # boolean columns on the cohort table, and the arms choose a column at
+  # train time. A config switch here would mean two runs that differ
+  # invisibly, and a sensitivity analysis you cannot see side by side.
+  #
+  # NOTE: this removes cfg["label"]["set"], which the scaffold-era build()
+  # in cohort.py still reads. That function is being replaced; the KeyError
+  # is deliberate, so the old single-label path cannot quietly run.
+  positive_class_expected: [0.05, 0.09]   # sanity band for the first build
 
 # --- decided after hardware sizing (M1 Max, 32GB unified) ---
 sample:
@@ -26,9 +77,12 @@ sample:
   seed: 20260821
 
 tokens:
-  # Truncation is the DEFAULT, not a shortcut: dementia history almost
-  # always appears early, in HPI and past medical history. Chunking is
-  # run as a comparison to test whether the tail carries signal.
+  # Truncation FIRST, for pipeline reasons rather than accuracy reasons:
+  # chunking multiplies compute 4-8x and forces a pooling decision (max?
+  # mean? any-chunk-positive?) that materially moves the false positive
+  # rate on a 5-9% positive class. Get the pipeline green on truncate,
+  # then run chunk as the measured comparison. If the tail carries signal
+  # it will show up there.
   strategy: "truncate"   # "truncate" or "chunk"
   max_len: 512
   stride: 128

@@ -34,10 +34,26 @@ the work is never in question.
 
 ## 3. Data and constraints
 
-MIMIC-IV (hosp module) and MIMIC-IV-Note, via PhysioNet. Already credentialed.
+MIMIC-IV v3.1 (hosp module) and MIMIC-IV-Note v2.2, via PhysioNet. Credentialing completed
+2026-09-04; CITI approval was the gating step, not the download.
 
 **Two separate DUAs required:** MIMIC-IV and MIMIC-IV-Note. People routinely sign one and wonder
 why the notes are missing. Confirm CITI training has not lapsed.
+
+**Note coverage is ~65%, not 100%.** Only 331,731 of 546,028 admissions in v3.1 have a discharge
+summary, and the shortfall is consistent across bands (61.6%-67.5%), so it is a property of
+MIMIC-IV-Note rather than a version-mismatch artefact.
+
+This changes what the result is a statement about: not "how often is cognitive impairment
+under-coded in MIMIC-IV admissions" but "...in admissions **that have a discharge summary**."
+The missing third is unlikely to be random — short stays, same-day procedures and observation
+admissions are both the least likely to generate a summary and the least likely to carry a
+chronic diagnosis code. State the qualifier explicitly; do not let a reader find it.
+
+**`2020 - 2022` is excluded on data coverage.** MIMIC-IV v3.1 extends to a fifth
+`anchor_year_group` band that MIMIC-IV-Note v2.2 predates: exactly 1 of its 42,491 admissions has
+a discharge summary. There is no text for any arm to read. The COVID confound would also justify
+exclusion, but the coverage fact settles it without needing that argument.
 
 **Hard constraint:** the DUA prohibits redistribution and prohibits sending the data through
 third-party APIs or online services, and recommends locally deployed models. Consequences:
@@ -128,13 +144,28 @@ interesting page of the writeup.
 
 ## 7. Week by week
 
-### Week 0 — scaffold (~1 hour) — BUILT
+### Week 0 — scaffold — BUILT
 
-Sign both DUAs. Repo skeleton with `pyproject.toml`, `src/`, `tests/`, `Dockerfile`, GitHub
-Actions running ruff and pytest, plus a separate CI job that fails if a data file is committed.
-17 tests pass on a clean machine with no data present.
+Sign both DUAs. Repo skeleton with `pyproject.toml`, `src/`, `tests/`, `Dockerfile`, and a
+`.github/workflows/ci.yml` declaring ruff, pytest, and a separate job that fails if a data file
+is committed. 17 tests pass locally in a clean venv with no data present.
 
 Done before any modelling. Retrofitting tests is how these projects die.
+
+**Two corrections to the original entry, which claimed more than was true:**
+
+- *"~1 hour"* was wrong. Week 0 grew Docker, CI, a pre-commit hook and this document — all of it
+  in the column I already know how to do. Infrastructure feels like progress because it is
+  unambiguous. It is not the skill this project exists to build.
+- *"GitHub Actions running ruff and pytest"* has **never executed**. There is no git remote, so
+  nothing has been pushed and GitHub has never seen this repo. The workflow file is currently
+  valid YAML and nothing more. The pre-commit hook is real and was verified by watching it fail;
+  CI is not. "17 tests pass on a clean machine" is unverified — they have only ever run in the
+  local venv.
+
+Decide whether this repo goes public, and when. Pushing early and small is the argument that
+wins: after a public push, a committed data file is a public git history to rewrite rather than
+a `git reset`, so the `no-data` job is better proven while a failure costs nothing.
 
 ### Week 1 — cohort and baselines
 

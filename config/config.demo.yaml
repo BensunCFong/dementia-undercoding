@@ -1,0 +1,73 @@
+# MIMIC-IV Clinical Database Demo v2.2 — 100 patients, OPEN ACCESS, no DUA.
+#
+# Purpose: exercise the ICD normalisation, the join-and-aggregate to admission
+# grain, and both split assertions, without touching credentialed data.
+#
+# What the demo CANNOT do:
+#   - No notes. mimic_note is null and the note-attachment step must be skipped.
+#   - Only two anchor_year_group bands are present: "2011 - 2013" (43 patients)
+#     and "2014 - 2016" (57). The real temporal split cannot be exercised here;
+#     it is unit tested against synthetic patients instead.
+
+paths:
+  mimic_hosp: "data/raw/mimic-iv-demo-2.2/hosp"
+  mimic_note: null                        # demo ships no notes
+  derived: "data/derived/demo"
+  duckdb: "data/derived/demo/cohort.duckdb"
+
+files:
+  # Downloaded straight from PhysioNet, so no shard globs here. This is the
+  # useful contrast with config.yaml: the same code has to handle both, which
+  # is the argument for the pattern living in config rather than in code.
+  hosp:
+    patients: "patients.csv.gz"
+    admissions: "admissions.csv.gz"
+    diagnoses_icd: "diagnoses_icd.csv.gz"
+    d_icd_diagnoses: "d_icd_diagnoses.csv.gz"
+    services: "services.csv.gz"
+    prescriptions: "prescriptions.csv.gz"
+  note: {}                                # nothing to read
+
+cohort:
+  min_age: 18
+  note_type: "DS"
+
+split:
+  # SMOKE TEST BANDS, NOT THE STUDY DESIGN.
+  # These are the only two bands the demo contains. Using 2014-2016 as "test"
+  # here contradicts the real design, where it is held out for straddling the
+  # ICD-9/ICD-10 transition — that is fine, because nothing scientific is read
+  # off a demo run. The point is that both partitions come out non-empty, so
+  # assert_split_sane and assert_bands_present actually execute rather than
+  # being skipped by a flag. An assertion that only runs in production is an
+  # assertion that has never run.
+  train: ["2011 - 2013"]
+  test:  ["2014 - 2016"]
+  exclude: {}     # the demo has only these two bands; nothing left over
+
+label:
+  # Expect roughly nothing here. 100 patients is far too small for the 5-9%
+  # base rate to appear reliably, and a demo positive count of 0 is not
+  # evidence the ICD matching is broken. tests/test_codes.py is what proves
+  # the matching works; this config only proves the SQL runs.
+  positive_class_expected: null
+
+sample:
+  n: null        # no sampling, the demo is already tiny
+  seed: 20260821
+
+tokens:
+  strategy: "truncate"
+  max_len: 512
+  stride: 128
+
+mlflow:
+  # Demo runs are plumbing checks, not experiments. Keep them out of the
+  # tracked experiment so they never contaminate the real comparison.
+  tracking_uri: "file:./mlruns"
+  azure_ml_uri: null
+  experiment: "dementia-undercoding-demo"
+
+delta:
+  path: "data/delta/demo"
+  enabled: false   # no notes to preprocess, so nothing for the Spark stage
