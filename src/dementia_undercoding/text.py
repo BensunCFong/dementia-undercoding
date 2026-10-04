@@ -1,23 +1,31 @@
 """Discharge summary preprocessing.
 
-Deliberately light. De-identification placeholders in MIMIC look like
-[** Name **] and carry no signal, so they go. Everything else stays: header
-structure and section names are informative for this task and stripping
-them is a decision that should be measured, not assumed.
+Deliberately light. De-identification placeholders carry no signal, so they
+go. Everything else stays: header structure and section names are
+informative for this task and stripping them is a decision that should be
+measured, not assumed.
+
+MIMIC-IV-Note writes every placeholder as three underscores, "___". Every one
+of the 331,793 discharge notes contains them. The MIMIC-III style,
+[** Name **], appears in only 8 notes and is kept as a fallback. Longer
+underscore runs (50-60 long) are horizontal rules in the note template and
+go with them.
 """
 
 from __future__ import annotations
 
 import re
 
-DEID = re.compile(r"\[\*\*.*?\*\*\]")
+DEID = re.compile(r"_{3,}|\[\*\*.*?\*\*\]")
 WS = re.compile(r"[ \t]+")
+LINE_EDGE = re.compile(r" *\n *")
 BLANK = re.compile(r"\n{3,}")
 
 
 def clean(text: str) -> str:
     text = DEID.sub(" ", text)
     text = WS.sub(" ", text)
+    text = LINE_EDGE.sub("\n", text)
     text = BLANK.sub("\n\n", text)
     return text.strip()
 
