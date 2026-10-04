@@ -77,21 +77,44 @@ HEADING = re.compile(r"^(" + "|".join(map(re.escape, TEMPLATE_HEADINGS)) + r"):"
 BASELINE_SECTIONS = ("History of Present Illness", "Past Medical History", "Social History")
 
 
-def sections(text: str) -> dict[str, str]:
-    """Split a cleaned note into template sections: {heading: body}.
+# Fallback for an older, dictated note format (mostly 2008-2013) that writes
+# headings in capitals: "HISTORY OF PRESENT ILLNESS:", "HOSPITAL COURSE:".
+# Used only when the normal parse finds no baseline text. Template headings
+# match in any case, and ANY all-capitals heading ends a section, because the
+# old format has headings the template list does not ("HOSPITAL COURSE",
+# "LABORATORY DATA"). Ending early is the safe direction: it can shorten the
+# history, but it cannot let the hospital course leak in.
+HEADING_ANY_CASE = re.compile(
+    r"^((?i:" + "|".join(map(re.escape, TEMPLATE_HEADINGS)) + r")|[A-Z][A-Z0-9 ,/&()-]{1,40}):",
+    re.MULTILINE,
+)
+CANONICAL = {heading.lower(): heading for heading in TEMPLATE_HEADINGS}
 
-    A section runs from its heading to the next template heading. If a heading
-    appears twice, the first one wins.
+
+def sections(text: str, heading: re.Pattern = HEADING) -> dict[str, str]:
+    """Split a cleaned note into sections: {heading: body}.
+
+    A section runs from its heading to the next heading. Headings are stored
+    in their template spelling ("History of Present Illness"), whatever case
+    the note used. If a heading appears twice, the first one wins.
     """
     found: dict[str, str] = {}
-    matches = list(HEADING.finditer(text))
+    matches = list(heading.finditer(text))
     for i, match in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        found.setdefault(match.group(1), text[match.end():end].strip())
+        name = CANONICAL.get(match.group(1).lower(), match.group(1))
+        found.setdefault(name, text[match.end():end].strip())
     return found
 
 
 def baseline_text(text: str) -> str:
-    """Only the baseline sections, headings kept. Empty string if none were found."""
-    parts = sections(text)
-    return "\n\n".join(f"{name}:\n{parts[name]}" for name in BASELINE_SECTIONS if parts.get(name))
+    """Only the baseline sections, headings kept. Empty string if none were found.
+
+    Tries the standard template first, then the capitals fallback.
+    """
+    for heading in (HEADING, HEADING_ANY_CASE):
+        parts = sections(text, heading)
+        found = [f"{name}:\n{parts[name]}" for name in BASELINE_SECTIONS if parts.get(name)]
+        if found:
+            return "\n\n".join(found)
+    return ""

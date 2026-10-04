@@ -73,3 +73,32 @@ def test_baseline_keeps_only_baseline_sections():
 
 def test_no_baseline_sections_gives_empty_string():
     assert baseline_text("Brief Hospital Course:\nStable.") == ""
+
+
+# Invented note in the older dictated format: capitals, and a hospital-course
+# heading that is not in the template list.
+DICTATED = """HISTORY OF PRESENT ILLNESS:
+Wife reports two years of worsening memory.
+
+PAST MEDICAL HISTORY:
+Hypertension
+
+HOSPITAL COURSE:
+Agitated and disoriented on night one.
+"""
+
+
+def test_dictated_capitals_fallback():
+    out = baseline_text(clean(DICTATED))
+    # Headings come back in template spelling, whatever case the note used.
+    assert out.startswith("History of Present Illness:\nWife reports")
+    assert "Past Medical History:\nHypertension" in out
+    # HOSPITAL COURSE is not a template heading, but in capitals it still ends the section.
+    assert "Agitated" not in out
+
+
+def test_standard_notes_ignore_the_fallback():
+    # A capitals sub-heading inside a standard note's HPI must not cut it short.
+    note = "History of Present Illness:\nForgetful.\nPMH: HTN.\n\nPast Medical History:\nHTN"
+    out = baseline_text(note)
+    assert "PMH: HTN." in out
