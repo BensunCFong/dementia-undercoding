@@ -170,15 +170,16 @@ Done before any modelling. Retrofitting tests is how these projects die.
 - *"~1 hour"* was wrong. Week 0 grew Docker, CI, a pre-commit hook and this document — all of it
   in the column I already know how to do. Infrastructure feels like progress because it is
   unambiguous. It is not the skill this project exists to build.
-- *"GitHub Actions running ruff and pytest"* has **never executed**. There is no git remote, so
-  nothing has been pushed and GitHub has never seen this repo. The workflow file is currently
-  valid YAML and nothing more. The pre-commit hook is real and was verified by watching it fail;
-  CI is not. "17 tests pass on a clean machine" is unverified — they have only ever run in the
-  local venv.
+- *"GitHub Actions running ruff and pytest"* had **never executed** when this entry was first
+  written: there was no git remote, so GitHub had never seen the repo. **Resolved 2026-10-03:**
+  the repo now has a private GitHub remote, and both CI jobs (lint plus tests, and `no-data`)
+  have run and passed on every push since. "Tests pass on a clean machine" is now verified, not
+  claimed.
 
-Decide whether this repo goes public, and when. Pushing early and small is the argument that
-wins: after a public push, a committed data file is a public git history to rewrite rather than
-a `git reset`, so the `no-data` job is better proven while a failure costs nothing.
+The repo stays private until commit authorship is settled: commits should carry a GitHub
+noreply address, not a personal email. Pushing early
+and privately was the right call: a committed data file is still a cheap fix here, and would be
+a public history rewrite after going public.
 
 ### Week 1 — cohort and baselines
 
