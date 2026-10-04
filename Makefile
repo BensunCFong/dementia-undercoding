@@ -1,4 +1,4 @@
-.PHONY: install test lint cohort cohort-demo
+.PHONY: install test lint cohort cohort-demo dataset
 	
 install:
 	pip install -e ".[dev]"
@@ -14,3 +14,6 @@ cohort:
 
 cohort-demo:
 	python -c "from dementia_undercoding.cohort import build, summarise; summarise(build('config/config.demo.yaml'))"
+
+dataset:
+	python -c "from dementia_undercoding.dataset import build; build()"

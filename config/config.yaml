@@ -9,6 +9,7 @@ paths:
   # data/ is gitignored in full, so nothing here can reach the repo.
   derived: "data/derived"
   duckdb: "data/derived/cohort.duckdb"
+  notes: "data/derived/notes.parquet"     # modelling dataset, from dataset.build()
 
 files:
   # Filenames relative to the paths above, declared here rather than built
@@ -80,10 +81,12 @@ label:
 
 # --- decided after hardware sizing (M1 Max, 32GB unified) ---
 sample:
-  # 50k documents is ample for this question and keeps the fine-tune arm
-  # to an overnight run rather than a multi-day one. Stratified on label
-  # and split so class balance is preserved.
-  n: 50000
+  # The dataset keeps every train and test note; nothing is sampled when it
+  # is built. Decided 2026-10-03: fine-tuning may run over several nights with
+  # daytime pauses, so the earlier 50k cap (set to fit one overnight run) is
+  # lifted. n is a cap on TRAINING notes only, applied at training time; the
+  # full test set is always used. null = all. Revisit after timing a batch.
+  n: null
   seed: 20260821
 
 tokens:
