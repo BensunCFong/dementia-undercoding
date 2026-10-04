@@ -6,8 +6,8 @@ from dementia_undercoding.codes import (
     load_code_sets,
     matches,
     normalise,
+    prefix_rows,
     prefixes_for,
-    sql_predicate,
 )
 
 
@@ -88,9 +88,12 @@ def test_prefix_does_not_overreach(core):
     assert not matches("G40", 10, core)
 
 
-def test_sql_predicate_shape(core):
-    pred = sql_predicate(core)
-    assert "icd_version = 9" in pred
-    assert "icd_version = 10" in pred
-    assert "'3310%'" in pred
-    assert "TRIM" in pred and "REPLACE" in pred
+def test_prefix_rows(sets):
+    # These rows are the only copy of the code rule the SQL ever sees.
+    rows = prefix_rows(sets)
+    assert len(rows) == 29
+    assert all(prefix == normalise(prefix) for _, _, prefix in rows)
+    core = {(ver, prefix) for label, ver, prefix in rows if label == "dementia_core"}
+    broad = {(ver, prefix) for label, ver, prefix in rows if label == "dementia_broad"}
+    assert broad > core
+    
