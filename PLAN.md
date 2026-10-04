@@ -50,6 +50,14 @@ The missing third is unlikely to be random — short stays, same-day procedures 
 admissions are both the least likely to generate a summary and the least likely to carry a
 chronic diagnosis code. State the qualifier explicitly; do not let a reader find it.
 
+**A further 4.1% of test admissions have no history section.** Their discharge summaries skip
+History of Present Illness and Past Medical History entirely, so the baseline-section rule leaves
+nothing to read (train loses 0.7%). They over-represent nursing-facility transfers, walk-ins, and
+discharges to hospice or psychiatric care, and carry dementia codes at 6.3% vs 4.7% (12.5% vs
+9.7% at 65+), so dropping them removes about 5% of test dementia cases. Not explained by age.
+One hypothesis, unconfirmed: their history was written in a separate note. Same treatment as
+note coverage: state it, do not bury it.
+
 **`2020 - 2022` is excluded on data coverage.** MIMIC-IV v3.1 extends to a fifth
 `anchor_year_group` band that MIMIC-IV-Note v2.2 predates: exactly 1 of its 42,491 admissions has
 a discharge summary. There is no text for any arm to read. The COVID confound would also justify
