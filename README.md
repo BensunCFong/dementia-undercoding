@@ -112,7 +112,8 @@ Weak labels from ICD codes, four arms, temporal split, then investigation of the
 sensitivity analysis: if the gap moves a lot between them, that says something about where
 clinicians place the diagnostic boundary.
 
-**Metric.** PR-AUC. The positive class runs around 5-9%, so accuracy is meaningless here.
+**Metric.** PR-AUC. The positive class runs around 4% across all adults (8-10% among admissions
+aged 65+), so accuracy is meaningless here.
 
 **Sampling.** 50,000 documents, stratified on label and split.
 
@@ -205,12 +206,15 @@ make lint
 
 ### First number to watch
 
-`make cohort` prints class balance by split. Expect **5-9% positive** on the core set.
+`make cohort` prints class balance by split. On the first full build, core dementia ran
+**3.9-4.7%** by split across all adults, and 7.8-9.8% among admissions aged 65+. Over half the
+cohort is under 65, where coded dementia is near zero, so the all-adult figure is mostly age mix.
 
-If it prints `0.00`, the ICD matching is broken. That is the failure mode `tests/test_codes.py`
-exists to prevent: MIMIC stores ICD codes without decimal points and sometimes space-padded, so
-matching a literal `331.0` silently labels nothing, the model trains on an all-negative target,
-and everything downstream looks broken for reasons that are hard to trace.
+The build fails on its own if the 65+ rate leaves 5-15% in any split. A rate near `0.00` means the
+ICD matching is broken. That is the failure mode `tests/test_codes.py` exists to prevent: MIMIC
+stores ICD codes without decimal points, so matching a literal `331.0` silently labels nothing,
+the model trains on an all-negative target, and everything downstream looks broken for reasons
+that are hard to trace.
 
 ---
 

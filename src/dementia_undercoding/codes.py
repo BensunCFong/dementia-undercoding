@@ -1,10 +1,14 @@
 """ICD code normalisation and prefix matching for weak labelling.
 
 The single most dangerous bug in this project lives here. MIMIC stores ICD
-codes without decimal points, sometimes space-padded, and mixes ICD-9 and
-ICD-10 in the same column with an `icd_version` flag. Matching on "331.0"
-silently labels nothing, the model trains on an all-negative target, and
-everything downstream looks broken for reasons that are hard to trace.
+codes without decimal points and mixes ICD-9 and ICD-10 in the same column
+with an `icd_version` flag. Matching on "331.0" silently labels nothing, the
+model trains on an all-negative target, and everything downstream looks
+broken for reasons that are hard to trace.
+
+MIMIC-III codes were sometimes space-padded. MIMIC-IV v3.1 codes are not, and
+cohort.assert_codes_clean checks that on every build. normalise() stays as a
+defensive contract for the prefixes and for any future data source.
 
 So: normalise first, match by prefix, and test it.
 """

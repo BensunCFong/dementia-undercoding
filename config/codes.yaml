@@ -1,8 +1,9 @@
 # ICD code sets for weak labelling.
 # Codes are matched by PREFIX against a normalised code:
 #   uppercase, whitespace stripped, dots removed.
-# MIMIC stores codes without decimals and sometimes space-padded, so a
-# literal "331.0" will never match. Always match "3310" as a prefix.
+# MIMIC stores codes without decimals, so a literal "331.0" will never
+# match. Always match "3310" as a prefix. (v3.1 codes are not space-padded;
+# cohort.assert_codes_clean checks that on every build.)
 
 dementia_core:
   icd9:

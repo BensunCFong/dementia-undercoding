@@ -122,7 +122,8 @@ reverse-engineering that working with real EHR data demands.
 sensitivity analysis. If the coding gap moves a lot between them, that says something about
 where clinicians place the diagnostic boundary.
 
-**Metric:** PR-AUC. Positive class runs 5-9%, so accuracy is meaningless.
+**Metric:** PR-AUC. Positive class runs about 4% across all adults (8-10% among admissions aged
+65+), so accuracy is meaningless.
 
 **Sampling:** 50,000 documents, stratified on label and split. Ample for this question and keeps
 the fine-tune to an overnight run.
@@ -177,8 +178,13 @@ a `git reset`, so the `no-data` job is better proven while a failure costs nothi
 - Arm 1: TF-IDF + logistic regression, and LightGBM.
 - Log everything to MLflow from the first run, not retrofitted at the end.
 
-**First number to watch:** class balance from `make cohort`. Expect 5-9% positive on core. If it
-prints 0.00, the ICD matching is broken — which is what `tests/test_codes.py` exists to prevent.
+**First number to watch:** class balance from `make cohort`. The original expectation was 5-9%
+positive on core. The first full build (2026-10-03) gave 3.9-4.7% by split across all adults.
+That is not a matching failure: over half the cohort is under 65, and among admissions aged 65+
+the rate is 7.8-9.8%. The 5-9% figure was never sourced; it fits older inpatients, not all
+adults. The cohort keeps all adults on purpose, since early-onset dementia is real. The build
+now checks the 65+ rate per split against a 5-15% sanity range. ICD-10 years code more dementia
+than ICD-9 years (test 9.8% vs train 7.8% at 65+), which the models will feel.
 
 ### Week 2 — the fine-tune
 

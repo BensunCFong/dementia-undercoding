@@ -63,10 +63,20 @@ label:
   # train time. A config switch here would mean two runs that differ
   # invisibly, and a sensitivity analysis you cannot see side by side.
   #
-  # NOTE: this removes cfg["label"]["set"], which the scaffold-era build()
-  # in cohort.py still reads. That function is being replaced; the KeyError
-  # is deliberate, so the old single-label path cannot quietly run.
-  positive_class_expected: [0.05, 0.09]   # sanity band for the first build
+  # Prevalence check (cohort.assert_prevalence): coded dementia_core among
+  # admissions aged 65+, per split. A guard on the ICD matching, not a
+  # hypothesis. The lower bound is the one that matters: broken matching
+  # drives the rate toward zero. The upper bound only catches a code set that
+  # has grown far too broad.
+  #
+  # Why 65+ and not all adults: over half the cohort is under 65, where coded
+  # dementia is near zero, so the all-adult rate (3.9-4.7% by split) is mostly
+  # an age-mix number. The earlier "5-9%" expectation was never sourced.
+  # First full build, 2026-10-03, 65+ only: train 7.81%, test 9.79%,
+  # exclude 9.59%. ICD-10 years code more dementia than ICD-9 years.
+  prevalence_check:
+    min_age: 65
+    core_range: [0.05, 0.15]
 
 # --- decided after hardware sizing (M1 Max, 32GB unified) ---
 sample:
@@ -80,7 +90,7 @@ tokens:
   # Truncation FIRST, for pipeline reasons rather than accuracy reasons:
   # chunking multiplies compute 4-8x and forces a pooling decision (max?
   # mean? any-chunk-positive?) that materially moves the false positive
-  # rate on a 5-9% positive class. Get the pipeline green on truncate,
+  # rate on a ~4% positive class. Get the pipeline green on truncate,
   # then run chunk as the measured comparison. If the tail carries signal
   # it will show up there.
   strategy: "truncate"   # "truncate" or "chunk"

@@ -135,8 +135,76 @@ def build_cohort(
     """, [min_age])
 
 
+def assert_bands_present(con, patients_path: str | Path, split_cfg: dict) -> None:
+    """Every configured band exists in the data, and every band in the data is configured.
+
+    Checked against patients, not the cohort, so a band that loses all its
+    admissions downstream still has to be accounted for in config.
+    """
+    configured = set(split_cfg["train"]) | set(split_cfg["test"]) | set(split_cfg["exclude"])
+    observed = {
+        row[0]
+        for row in con.execute(
+            f"SELECT DISTINCT anchor_year_group FROM read_csv('{patients_path}')"
+        ).fetchall()
+    }
+    not_in_data = configured - observed
+    not_in_config = observed - configured
+    if not_in_data:
+        raise ValueError(f"Bands in config but not in patients: {sorted(not_in_data)}")
+    if not_in_config:
+        raise ValueError(f"Bands in patients but not in config: {sorted(not_in_config)}")
+
+
+def assert_codes_clean(con, diagnoses_path: str | Path) -> None:
+    """Every ICD code is bare uppercase letters and digits: no dots, no padding.
+
+    build_dx matches raw codes without normalising them in SQL. That is only
+    safe while this holds, so it is checked on every build rather than trusted.
+    """
+    (n_dirty,) = con.execute(f"""
+        SELECT COUNT(*)
+        FROM read_csv('{diagnoses_path}', types = {{'icd_code': 'VARCHAR'}})
+        WHERE NOT regexp_full_match(icd_code, '[0-9A-Z]+')
+    """).fetchone()
+    if n_dirty:
+        raise ValueError(f"{n_dirty} ICD codes contain dots, spaces or lowercase")
+
+
+def assert_unique_admissions(con) -> None:
+    """The cohort has exactly one row per admission."""
+    (n_dupes,) = con.execute("SELECT COUNT(*) - COUNT(DISTINCT hadm_id) FROM cohort").fetchone()
+    if n_dupes:
+        raise ValueError(f"{n_dupes} duplicate hadm_id rows in cohort")
+
+
+def assert_prevalence(con, min_age: int, core_range: list[float]) -> None:
+    """Coded core dementia among older admissions sits in a sane range, in every split.
+
+    A guard on the ICD matching, not a hypothesis. Restricted to min_age and
+    over because younger admissions dilute the rate toward zero.
+    """
+    low, high = core_range
+    rows = con.execute("""
+        SELECT split, AVG(dementia_core::INT)
+        FROM cohort
+        WHERE age_at_admit >= ?
+        GROUP BY split
+        ORDER BY split
+    """, [min_age]).fetchall()
+    for split, rate in rows:
+        if not low <= rate <= high:
+            raise ValueError(
+                f"Core dementia among {min_age}+ in {split} split is {rate:.2%}, "
+                f"outside {low:.0%}-{high:.0%}"
+            )
+
+
 def build(config_path: str | Path = "config/config.yaml", codes_path: str | Path = "config/codes.yaml"):
-    """Run every step in order and return the open connection."""
+    """Run every step in order and return the open connection.
+
+    Raises ValueError, and stops, if any check fails.
+    """
     cfg = load_config(config_path)
     files = cfg["files"]
     hosp = Path(cfg["paths"]["mimic_hosp"])
@@ -145,6 +213,11 @@ def build(config_path: str | Path = "config/config.yaml", codes_path: str | Path
 
     Path(cfg["paths"]["duckdb"]).parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(cfg["paths"]["duckdb"])
+
+    # Checks on the inputs, before anything is built from them.
+    assert_bands_present(con, hosp / files["hosp"]["patients"], cfg["split"])
+    assert_codes_clean(con, hosp / files["hosp"]["diagnoses_icd"])
+
     load_prefixes(con, load_code_sets(codes_path))
     load_split_bands(con, cfg["split"])
     build_dx(con, hosp / files["hosp"]["diagnoses_icd"])
@@ -155,6 +228,12 @@ def build(config_path: str | Path = "config/config.yaml", codes_path: str | Path
         discharge,
         cfg["cohort"]["min_age"],
     )
+
+    # Checks on the output.
+    assert_unique_admissions(con)
+    check = cfg["label"]["prevalence_check"]
+    if check:
+        assert_prevalence(con, check["min_age"], check["core_range"])
     return con
 
 

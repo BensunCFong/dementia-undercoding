@@ -46,11 +46,11 @@ split:
   exclude: {}     # the demo has only these two bands; nothing left over
 
 label:
-  # Expect roughly nothing here. 100 patients is far too small for the 5-9%
-  # base rate to appear reliably, and a demo positive count of 0 is not
+  # Expect roughly nothing here. 100 patients is far too small for the base
+  # rate to appear reliably, and a demo positive count of 0 is not
   # evidence the ICD matching is broken. tests/test_codes.py is what proves
   # the matching works; this config only proves the SQL runs.
-  positive_class_expected: null
+  prevalence_check: null   # skipped: too few patients to mean anything
 
 sample:
   n: null        # no sampling, the demo is already tiny

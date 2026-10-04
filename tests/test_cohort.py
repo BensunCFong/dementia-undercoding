@@ -1,10 +1,19 @@
-"""The admission-grain diagnosis table, built from a tiny fake diagnoses file."""
+"""The cohort build and its checks, run on tiny fake MIMIC-shaped files."""
 
 import duckdb
 import pytest
 
 from dementia_undercoding.codes import load_code_sets
-from dementia_undercoding.cohort import build_cohort, build_dx, load_prefixes, load_split_bands
+from dementia_undercoding.cohort import (
+    assert_bands_present,
+    assert_codes_clean,
+    assert_prevalence,
+    assert_unique_admissions,
+    build_cohort,
+    build_dx,
+    load_prefixes,
+    load_split_bands,
+)
 
 # subject_id, hadm_id, seq_num, icd_code, icd_version - same columns as MIMIC.
 FAKE_DIAGNOSES = """subject_id,hadm_id,seq_num,icd_code,icd_version
@@ -80,7 +89,7 @@ def test_flags(dx):
 
 
 @pytest.fixture
-def cohort(tmp_path):
+def fake_dir(tmp_path):
     files = {
         "diagnoses_icd.csv": FAKE_DIAGNOSES,
         "patients.csv": FAKE_PATIENTS,
@@ -89,18 +98,28 @@ def cohort(tmp_path):
     }
     for name, text in files.items():
         (tmp_path / name).write_text(text)
+    return tmp_path
+
+
+@pytest.fixture
+def cohort_con(fake_dir):
     con = duckdb.connect()
     load_prefixes(con, load_code_sets("config/codes.yaml"))
     load_split_bands(con, SPLIT)
-    build_dx(con, tmp_path / "diagnoses_icd.csv")
+    build_dx(con, fake_dir / "diagnoses_icd.csv")
     build_cohort(
         con,
-        tmp_path / "admissions.csv",
-        tmp_path / "patients.csv",
-        tmp_path / "discharge.csv",
+        fake_dir / "admissions.csv",
+        fake_dir / "patients.csv",
+        fake_dir / "discharge.csv",
         min_age=18,
     )
-    rows = con.execute("""
+    return con
+
+
+@pytest.fixture
+def cohort(cohort_con):
+    rows = cohort_con.execute("""
         SELECT hadm_id, split, age_at_admit, n_codes, dementia_core
         FROM cohort ORDER BY hadm_id
     """).fetchall()
@@ -128,3 +147,50 @@ def test_age_at_admission(cohort):
 def test_admission_without_codes(cohort):
     # 107 has a note but no diagnosis rows at all: zero codes, not NULL.
     assert cohort[107][2:] == (0, False)
+
+
+# --- the checks: each one must pass on good input and fail on bad ---
+
+
+def test_bands_unconfigured_band_fails(fake_dir):
+    # FAKE_PATIENTS has 2023 - 2025, which SPLIT does not mention.
+    with pytest.raises(ValueError, match="2023 - 2025"):
+        assert_bands_present(duckdb.connect(), fake_dir / "patients.csv", SPLIT)
+
+
+def test_bands_missing_from_data_fails(fake_dir):
+    split = {**SPLIT, "test": ["2017 - 2019", "2023 - 2025", "2099 - 2101"]}
+    with pytest.raises(ValueError, match="2099 - 2101"):
+        assert_bands_present(duckdb.connect(), fake_dir / "patients.csv", split)
+
+
+def test_bands_all_accounted_for_passes(fake_dir):
+    split = {**SPLIT, "test": ["2017 - 2019", "2023 - 2025"]}
+    assert_bands_present(duckdb.connect(), fake_dir / "patients.csv", split)
+
+
+def test_codes_clean_passes(fake_dir):
+    assert_codes_clean(duckdb.connect(), fake_dir / "diagnoses_icd.csv")
+
+
+@pytest.mark.parametrize("bad_code", ["331.0", " 3310", "g309"])
+def test_codes_dirty_fails(tmp_path, bad_code):
+    path = tmp_path / "diagnoses_icd.csv"
+    path.write_text(f"subject_id,hadm_id,seq_num,icd_code,icd_version\n1,101,1,{bad_code},9\n")
+    with pytest.raises(ValueError, match="1 ICD codes"):
+        assert_codes_clean(duckdb.connect(), path)
+
+
+def test_unique_admissions(cohort_con):
+    assert_unique_admissions(cohort_con)
+    cohort_con.execute("INSERT INTO cohort SELECT * FROM cohort WHERE hadm_id = 101")
+    with pytest.raises(ValueError, match="1 duplicate"):
+        assert_unique_admissions(cohort_con)
+
+
+def test_prevalence(cohort_con):
+    # 65+ in the fake cohort: train is 101 (core), so 100%; test is 102 and
+    # 107 (neither core), so 0%. A wide range passes; a narrow one fails.
+    assert_prevalence(cohort_con, 65, [0.0, 1.0])
+    with pytest.raises(ValueError, match="test split is 0.00%"):
+        assert_prevalence(cohort_con, 65, [0.05, 1.0])
