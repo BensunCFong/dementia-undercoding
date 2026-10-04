@@ -1,4 +1,25 @@
-from dementia_undercoding.text import clean
+from dementia_undercoding.text import baseline_text, clean, sections
+
+# Invented note in the MIMIC-IV discharge template. Not real patient text.
+NOTE = """Chief Complaint:
+confusion
+
+History of Present Illness:
+Per daughter, increasingly forgetful at home.
+In the ED, initial vitals were: stable.
+
+Past Medical History:
+Hypertension
+
+Social History:
+___
+
+Family History:
+Noncontributory
+
+Brief Hospital Course:
+Disoriented overnight, improved by day 3.
+"""
 
 
 def test_deid_placeholders_removed():
@@ -29,3 +50,26 @@ def test_clinical_content_preserved():
     out = clean(src)
     assert "HISTORY OF PRESENT ILLNESS" in out
     assert "poor historian" in out
+
+
+def test_sections_split_on_template_headings():
+    parts = sections(clean(NOTE))
+    assert parts["Past Medical History"] == "Hypertension"
+    # A sub-heading inside a section is not a template heading, so it does not end it.
+    assert "In the ED, initial vitals were: stable." in parts["History of Present Illness"]
+
+
+def test_baseline_keeps_only_baseline_sections():
+    out = baseline_text(clean(NOTE))
+    assert out.startswith("History of Present Illness:")
+    assert "forgetful" in out
+    assert "Hypertension" in out
+    # Hospital course is where acute confusion lives: the delirium rule keeps it out.
+    assert "Disoriented" not in out
+    assert "Noncontributory" not in out
+    # Social History was only a placeholder, so it is empty after cleaning and dropped.
+    assert "Social History" not in out
+
+
+def test_no_baseline_sections_gives_empty_string():
+    assert baseline_text("Brief Hospital Course:\nStable.") == ""

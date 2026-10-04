@@ -139,6 +139,12 @@ Past Medical History, History of Present Illness, Social History. Brief Hospital
 assessments are excluded, because that is where delirium lives. Section parsing in MIMIC-IV-Note
 is inconsistent, so the fraction of notes successfully parsed is reported as a result.
 
+Measured across all 331,793 discharge notes: 98.6% yield some baseline text. History of Present
+Illness is non-empty in 97.9% and Past Medical History in 95.7%. Social History is non-empty in
+only 2.9%, because MIMIC-IV-Note de-identifies it down to a bare placeholder, so in practice the
+models read HPI and Past Medical History. The baseline text is short: median about 1,600
+characters against about 9,300 for the whole note.
+
 **Reporting — stratification, not exclusion.** The gap is reported separately for
 delirium-coded and non-delirium-coded admissions. Delirium-coded admissions are *not* dropped:
 dementia is the single largest risk factor for delirium, so excluding them would remove exactly
