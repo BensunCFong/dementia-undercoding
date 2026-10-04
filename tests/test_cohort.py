@@ -4,7 +4,7 @@ import duckdb
 import pytest
 
 from dementia_undercoding.codes import load_code_sets
-from dementia_undercoding.cohort import build_dx, load_prefixes
+from dementia_undercoding.cohort import build_cohort, build_dx, load_prefixes, load_split_bands
 
 # subject_id, hadm_id, seq_num, icd_code, icd_version - same columns as MIMIC.
 FAKE_DIAGNOSES = """subject_id,hadm_id,seq_num,icd_code,icd_version
@@ -16,6 +16,40 @@ FAKE_DIAGNOSES = """subject_id,hadm_id,seq_num,icd_code,icd_version
 4,104,1,4019,9
 5,105,1,F03,9
 """
+
+FAKE_PATIENTS = """subject_id,gender,anchor_age,anchor_year,anchor_year_group
+1,F,80,2150,2011 - 2013
+2,M,70,2160,2017 - 2019
+3,F,75,2170,2014 - 2016
+4,M,17,2155,2011 - 2013
+5,F,60,2180,2023 - 2025
+"""
+
+FAKE_ADMISSIONS = """subject_id,hadm_id,admittime,admission_type,insurance,language,marital_status,race
+1,101,2153-05-01 10:00:00,URGENT,Medicare,English,WIDOWED,WHITE
+2,102,2160-01-01 10:00:00,URGENT,Medicare,English,MARRIED,WHITE
+3,103,2170-01-01 10:00:00,URGENT,Medicare,English,MARRIED,WHITE
+4,104,2155-01-01 10:00:00,URGENT,Medicaid,English,SINGLE,WHITE
+5,105,2180-01-01 10:00:00,URGENT,Private,English,SINGLE,WHITE
+1,106,2154-01-01 10:00:00,URGENT,Medicare,English,WIDOWED,WHITE
+2,107,2161-01-01 10:00:00,URGENT,Medicare,English,MARRIED,WHITE
+"""
+
+# 106 deliberately has no discharge summary. Text is placeholder, not clinical.
+FAKE_DISCHARGE = """note_id,subject_id,hadm_id,note_type,note_seq,text
+1-DS-1,1,101,DS,1,aaaa
+2-DS-1,2,102,DS,1,aaaa
+3-DS-1,3,103,DS,1,aaaa
+4-DS-1,4,104,DS,1,aaaa
+5-DS-1,5,105,DS,1,aaaa
+2-DS-2,2,107,DS,2,aaaa
+"""
+
+SPLIT = {
+    "train": ["2011 - 2013"],
+    "test": ["2017 - 2019"],
+    "exclude": {"2014 - 2016": "held out"},
+}
 
 
 @pytest.fixture
@@ -43,3 +77,54 @@ def test_flags(dx):
     assert dx[103] == (2, True, True, True)     # delirium + Alzheimer's
     assert dx[104] == (1, False, False, False)  # hypertension only
     assert dx[105] == (1, False, False, False)  # F03 under ICD-9 is not dementia
+
+
+@pytest.fixture
+def cohort(tmp_path):
+    files = {
+        "diagnoses_icd.csv": FAKE_DIAGNOSES,
+        "patients.csv": FAKE_PATIENTS,
+        "admissions.csv": FAKE_ADMISSIONS,
+        "discharge.csv": FAKE_DISCHARGE,
+    }
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    con = duckdb.connect()
+    load_prefixes(con, load_code_sets("config/codes.yaml"))
+    load_split_bands(con, SPLIT)
+    build_dx(con, tmp_path / "diagnoses_icd.csv")
+    build_cohort(
+        con,
+        tmp_path / "admissions.csv",
+        tmp_path / "patients.csv",
+        tmp_path / "discharge.csv",
+        min_age=18,
+    )
+    rows = con.execute("""
+        SELECT hadm_id, split, age_at_admit, n_codes, dementia_core
+        FROM cohort ORDER BY hadm_id
+    """).fetchall()
+    return {row[0]: row[1:] for row in rows}
+
+
+def test_cohort_keeps_adults_with_a_note(cohort):
+    # 104 is 17. 106 has no discharge summary.
+    assert sorted(cohort) == [101, 102, 103, 105, 107]
+
+
+def test_split_from_band(cohort):
+    assert cohort[101][0] == "train"
+    assert cohort[102][0] == "test"
+    assert cohort[103][0] == "exclude"
+    # 2023 - 2025 is not in SPLIT: NULL, not quietly bucketed. Piece 4 asserts on this.
+    assert cohort[105][0] is None
+
+
+def test_age_at_admission(cohort):
+    # anchor_age 80 in 2150, admitted 2153.
+    assert cohort[101][1] == 83
+
+
+def test_admission_without_codes(cohort):
+    # 107 has a note but no diagnosis rows at all: zero codes, not NULL.
+    assert cohort[107][2:] == (0, False)
