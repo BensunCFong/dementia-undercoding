@@ -55,8 +55,12 @@ History of Present Illness and Past Medical History entirely, so the baseline-se
 nothing to read (train loses 0.7%). They over-represent nursing-facility transfers, walk-ins, and
 discharges to hospice or psychiatric care, and carry dementia codes at 6.3% vs 4.7% (12.5% vs
 9.7% at 65+), so dropping them removes about 5% of test dementia cases. Not explained by age.
-One hypothesis, unconfirmed: their history was written in a separate note. Same treatment as
-note coverage: state it, do not bury it.
+A read of 5 sampled notes (2026-10-04) found no pointer to a separate note ("see H&P",
+"transferred from"). They simply use a different, problem-based format that starts at Brief
+Hospital Course (SUMMARY, ACUTE ISSUES, CHRONIC ISSUES, TRANSITIONAL ISSUES) with no history block.
+Five notes is a small sample; the cause is unknown. Same treatment as note coverage: state it,
+do not bury it. Possible stage 4 sensitivity check: run the trained model on the CHRONIC ISSUES
+text of the roughly 21% of these notes that have one, and see whether the gap moves.
 
 **`2020 - 2022` is excluded on data coverage.** MIMIC-IV v3.1 extends to a fifth
 `anchor_year_group` band that MIMIC-IV-Note v2.2 predates: exactly 1 of its 42,491 admissions has
