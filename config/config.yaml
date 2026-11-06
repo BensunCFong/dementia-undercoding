@@ -57,6 +57,16 @@ split:
       against MIMIC-IV v2.2. Exactly 1 admission in this band has a discharge
       summary, so there is no text for any arm to read. Excluded on data
       coverage, not on the COVID confound - though that would also apply.
+  validation:
+    # Carved out of TRAIN, never test. Drawn by patient (subject_id), not by
+    # admission: patients average about two admissions in train, and notes
+    # copy history forward, so an admission-level draw would grade the model
+    # on text it had effectively seen. Plain random draw, no stratification.
+    # Decided 2026-10-05: compared seeds 1-4 on age, sex, core / broad /
+    # delirium rates, ICD-10 share (~19% of train) and note length. All four
+    # were close to train overall; seed 3 was closest on most of them.
+    frac: 0.1
+    seed: 3
 
 label:
   # No "set" key by design. core and broad are materialised as separate
