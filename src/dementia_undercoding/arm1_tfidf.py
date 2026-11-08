@@ -13,7 +13,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -76,6 +75,8 @@ def fit_and_score(notes: pd.DataFrame, label: str, params: dict = PARAMS) -> dic
 
 
 def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> dict:
+    import mlflow  # imported here, not at the top: CI installs only core packages
+
     cfg = load_config(config_path)
     notes = load_notes(config_path, columns=[label, "text"])
     notes = notes[notes["split"].isin(["train", "validation"])]   # drop test first
