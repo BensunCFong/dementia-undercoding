@@ -68,6 +68,3 @@ mlflow:
   azure_ml_uri: null
   experiment: "dementia-undercoding-demo"
 
-delta:
-  path: "data/delta/demo"
-  enabled: false   # no notes to preprocess, so nothing for the Spark stage

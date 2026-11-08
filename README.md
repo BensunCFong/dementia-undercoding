@@ -190,7 +190,6 @@ whole exercise.
 Local, on an M1 Max with 32GB unified memory.
 
 - **DuckDB** — cohort build, reads the gzipped CSVs in place
-- **PySpark + delta-spark** — note preprocessing, cohort written as Delta tables
 - **scikit-learn, LightGBM** — arms 0 and 1
 - **PyTorch, HuggingFace Transformers, PEFT** — arm 2, LoRA on MPS at full precision
 - **MLX or llama.cpp** — arm 3, 7-8B instruct model at 4-bit
@@ -202,7 +201,7 @@ Local, on an M1 Max with 32GB unified memory.
 
 ```
 config/codes.yaml     ICD code sets, core and broad, with prefix-matching notes
-config/config.yaml    paths, cohort filters, split, sampling, tokens, MLflow, Delta
+config/config.yaml    paths, cohort filters, split, sampling, tokens, MLflow
 src/.../codes.py      normalisation and matching. The riskiest code in the repo.
 src/.../cohort.py     DuckDB cohort build
 src/.../text.py       de-identification cleanup and chunking

@@ -101,9 +101,11 @@ experience (DP-203, AI-300, Synapse, ADLS Gen2). LoRA on a Mac is the same LoRA.
 used). Train locally, log runs remotely. Converts "MLflow, certification labs" into "MLflow
 tracking on Azure ML, four experiment arms, model registered."
 
-**Taken: Delta Lake and PySpark locally.** `delta-spark` in local mode gives real Delta format
-with ACID semantics and time travel, plus a genuine PySpark stage in note preprocessing. Three
-of the four core Databricks capabilities, on hardware I own.
+**Dropped 2026-11-08: Delta Lake and PySpark locally.** The original plan used `delta-spark` in
+local mode for real Delta format with ACID semantics and time travel, plus a PySpark stage in
+note preprocessing. It was there to demonstrate Databricks skills, not because the science
+needed it: DuckDB and Parquet already do every job it would have done. Deferred 2026-10-03,
+dropped 2026-11-08 before any Spark code was written.
 
 **Accepted gap: Unity Catalog.** Databricks-managed, no local equivalent, not worth putting
 MIMIC on a hosted service to chase.
@@ -188,7 +190,7 @@ a public history rewrite after going public.
 ### Week 1 — cohort and baselines
 
 - Build the cohort in DuckDB. Join discharge summaries to admissions to diagnosis codes.
-- Write the cohort out as Delta tables via local PySpark.
+- ~~Write the cohort out as Delta tables via local PySpark.~~ Dropped 2026-11-08 (§4).
 - Note preprocessing: strip de-identification placeholders, collapse whitespace, keep section
   headers (they carry signal).
 - Arm 0: regex baseline.
@@ -247,10 +249,8 @@ Dockerfile, README with results and no note text, model card, writeup. Post the 
 - **Delirium contamination.** "Oriented times one" on post-op day two is delirium, not dementia.
   Where that line sits determines the finding, and it is a judgment call to make explicitly and
   document, not to bury.
-- **Spark is gratuitous at this scale.** DuckDB handles 330k documents comfortably. PySpark is
-  used for the note stage and for the Delta write, which is a legitimate demonstration, but be
-  ready to say plainly that it was not a necessity. Claiming otherwise would not survive
-  scrutiny.
+- **Spark is gratuitous at this scale.** DuckDB handles 330k documents comfortably, which is
+  why the PySpark and Delta stage was dropped (§4).
 - **Every decision has to be defensible.** What makes a project like this survive twenty minutes
   of questioning is being able to explain its choices: why PR-AUC, what LoRA rank and why, what
   broke, what was abandoned.

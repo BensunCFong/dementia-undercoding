@@ -16,8 +16,6 @@ dependencies = [
 [project.optional-dependencies]
 ml = [
   "torch>=2.4",
-  "pyspark>=3.5",
-  "delta-spark>=3.2",
   "transformers>=4.44",
   "peft>=0.13",
   "datasets>=3.0",

@@ -125,12 +125,6 @@ mlflow:
   azure_ml_uri: null
   experiment: "dementia-undercoding"
 
-delta:
-  # Cohort written as Delta tables via local PySpark. Real Delta format,
-  # real ACID semantics, no Databricks account and no data leaving the Mac.
-  path: "data/delta"
-  enabled: true
-
 arm0:
   # Regex baseline. Every rule fixed 2026-11-07, before any note was read; see arm0_regex.py.
   window: 6                 # NegEx-style scope: at most this many words between trigger and term
