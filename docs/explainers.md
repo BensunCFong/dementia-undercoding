@@ -187,3 +187,49 @@ GPU holds one run at a time (about 15 GB).
 
 Candidates for the optional slots: a truncation follow-up (PMH first, or head and tail), core vs
 broad label, or a second seed of the main run. Chunking does not fit a 6-hour slot at two passes.
+
+## Arm 0: the regex baseline, designed to be a serious competitor
+
+PLAN §6 frames the project's hypothesis as LoRA vs regex: a regex catches explicit mentions,
+and the fine-tuned model has to earn its place on implicit language ("poor historian",
+"oriented x1", "per daughter, increasingly forgetful"). So the regex is built to be as strong as
+an explicit-mention rule can honestly be. Every rule below was fixed on 2026-11-07, before any
+note was read, and nothing is tuned on validation.
+
+**Terms mirror the `dementia_core` ICD codes.** Diagnosis names: dementia/demented,
+Alzheimer('s), Lewy body/bodies, Pick's disease, major neurocognitive disorder. Left out on
+purpose: abbreviations (AD can mean Alzheimer's, "as directed", atopic dermatitis or advance
+directive), mild cognitive impairment (the broad label), delirium (the contrast condition), and
+implicit language (the territory LoRA has to win).
+
+**Two pre-declared variants.** *Arm 0* uses diagnosis terms only. *Arm 0+drugs* adds the four
+dementia drugs (donepezil, rivastigmine, galantamine, memantine, with brand names). The study
+uses prescriptions of those drugs as a validator, so arm 0 is the version used at the validation
+stage: a regex that finds candidates by drug name and is then "validated" by drug prescriptions
+would be partly checking itself.
+
+**Context, NegEx/ConText style.** Each mention is classed by trigger words within the same
+clause and at most 6 words away. Sentence ends, "?" followed by a space, and contrast words
+(but, however, although, though, except, which) end a clause.
+
+| Class | Example | Counted as |
+|---|---|---|
+| Negated | "No history of dementia", "dementia was ruled out" | 0 |
+| Someone else | "Mother had dementia" (but "per daughter, patient has dementia" is the patient) | 0 |
+| Uncertain | "Concern for dementia", "?dementia", "cannot exclude dementia" | 0.5 |
+| Certain | Everything else | 1 |
+
+Standard pseudo-negations ("no change in her dementia", "not ruled out") do not negate.
+
+**Score** = sum of counted mentions, so a note naming dementia in both HPI and PMH ranks above
+one naming it once. A yes/no score would give PR-AUC a single point to rank on and undersell the
+regex. The 0.5 weight is a judgement call made in advance. Also reported: precision and recall of
+the simplest rule, "flag any note with a score above 0".
+
+**Text.** The same baseline sections as the other arms, read in full. A third pre-declared run,
+*arm 0 first 512*, reads only the first 512 tokens: exactly arm 2's window. The gap between
+the full and first-512 runs measures how much explicit signal truncation cuts off.
+
+**Tests.** 34 invented sentences with known answers pin down every rule above
+(`tests/test_arm0_regex.py`). Rule-based negation is good but not perfect (published NegEx
+precision is in the 80-90% range); its known weaknesses are part of what the comparison shows.

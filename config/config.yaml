@@ -131,7 +131,10 @@ delta:
   path: "data/delta"
   enabled: true
 
-
+arm0:
+  # Regex baseline. Every rule fixed 2026-11-07, before any note was read; see arm0_regex.py.
+  window: 6                 # NegEx-style scope: at most this many words between trigger and term
+  uncertain_weight: 0.5     # "concern for dementia" counts half; a judgement call, not tuned
 
 lora:
   # Arm 2. Decided 2026-11-07, before any LoRA result was seen.
@@ -161,3 +164,4 @@ lora:
     max_grad_norm: 1.0              # cap on any single nudge
     seed: 20261107
     health_check_train_n: 20000     # train notes scored after training, for the train-vs-validation gap
+
