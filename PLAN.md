@@ -229,7 +229,7 @@ Take every admission where the model says yes and the codes say no. That set is 
    documented impairment.
 3. **Subgroup analysis.** By sex, age band, insurance, race/ethnicity. If under-coding
    concentrates in particular groups, that is a fairness finding and the most interesting
-   possible result. I have prior form here (PCO and U15 equity work).
+   possible result. I have done equity analysis before (PCO and U15 equity work).
 4. **Delirium contrast.** Separate chronic documented impairment from acute confusion, the likely
    dominant false positive. Contrast codes are already in `config/codes.yaml`.
 
