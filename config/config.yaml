@@ -183,3 +183,22 @@ compare:
   n_boot: 2000                    # resamples; enough for stable 95% percentile intervals
   seed: 20261108
   ci: 0.95
+
+arm3:
+  # Prompted local LLM via llama.cpp (arm3_llm.py). Fixed 2026-11-08, before any arm 3 score.
+  models:
+    medgemma-1.5-4b:
+      path: "~/models/gguf/medgemma-1.5-4b-it-Q4_K_M.gguf"
+      prefill: "<unused94>thought\n<unused95>"   # MedGemma 1.5 thinks first: close the thought, then it answers
+    qwen3.5-9b:
+      path: "~/models/gguf/Qwen3.5-9B-Q4_K_M.gguf"
+      prefill: ""                               # thinking switched off through the chat template instead
+  port: 8089
+  ctx: 16384                  # tokens the server holds: examples + the longest note
+  max_note_chars: 40000       # longer notes are cut (counted and reported); about 10,000 tokens
+  sample_seed: 20261108       # for --n: the same sample of validation notes for every model
+  examples:
+    n_pos: 2                  # real TRAIN notes with the dementia_core code
+    n_neg: 2                  # real TRAIN notes without it, and with arm 0 score 0
+    max_chars: 1600           # short notes only: about 400 tokens each
+    seed: 20261108
