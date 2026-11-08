@@ -1,9 +1,10 @@
 """The scorer, on labels and scores small enough to check by hand."""
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from dementia_undercoding.evaluate import report, score
+from dementia_undercoding.evaluate import report, save_scores, score
 
 
 def test_perfect_ranking_scores_one():
@@ -47,8 +48,15 @@ def test_bad_input_raises(y_true, y_score):
     with pytest.raises(ValueError):
         score(y_true, y_score)
 
-
 def test_report_shows_baseline():
     line = report("arm 1", score([0, 0, 0, 1], [0.1, 0.2, 0.3, 0.9]))
     assert "chance 0.250" in line
     assert "PR-AUC 1.000" in line
+
+def test_save_scores_writes_ids_and_scores_only(tmp_path):
+    path = tmp_path / "scores" / "arm.parquet"
+    save_scores([101, 102, 103], np.array([0.1, 0.9, 0.5]), path)
+    df = pd.read_parquet(path)
+    assert list(df.columns) == ["hadm_id", "score"]
+    assert df["hadm_id"].tolist() == [101, 102, 103]
+    assert df["score"].tolist() == pytest.approx([0.1, 0.9, 0.5])    

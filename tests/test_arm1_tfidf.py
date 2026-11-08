@@ -28,3 +28,4 @@ def test_returns_metrics_only():
     result = fit_and_score(fake_notes(), "dementia_core", {**PARAMS, "min_df": 1})
     values = [*result["val"].values(), *result["train"].values(), result["vocab_size"]]
     assert all(isinstance(v, int | float) for v in values)
+    assert len(result["val_scores"]) == (fake_notes()["split"] == "validation").sum()

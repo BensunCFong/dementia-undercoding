@@ -10,6 +10,7 @@ paths:
   derived: "data/derived"
   duckdb: "data/derived/cohort.duckdb"
   notes: "data/derived/notes.parquet"     # modelling dataset, from dataset.build()
+  scores: "data/derived/scores"          # per-note validation scores from each arm (hadm_id, score)
 
 files:
   # Filenames relative to the paths above, declared here rather than built
@@ -126,3 +127,33 @@ delta:
   # real ACID semantics, no Databricks account and no data leaving the Mac.
   path: "data/delta"
   enabled: true
+
+
+
+lora:
+  # Arm 2. Decided 2026-11-07, before any LoRA result was seen.
+  model: "emilyalsentzer/Bio_ClinicalBERT"
+  max_len: 512
+  main:
+    r: 8
+    alpha: 16
+    dropout: 0.1
+    target_modules: ["query", "value"]
+  # Pre-declared fallback: runs only if the main run's validation PR-AUC is
+  # below fallback_trigger (arm 1's 0.730 + about 0.03 rough noise). Changes
+  # rank only; alpha moves with it (alpha = 2r) so opacity per layer is unchanged.
+  fallback:
+    r: 12
+    alpha: 24
+    dropout: 0.1
+    target_modules: ["query", "value"]
+  fallback_trigger: 0.76
+  out_dir: "data/derived/arm2"      # trained adapters; under data/, never logged to MLflow
+  train:
+    label: "dementia_core"
+    batch_size: 16
+    learning_rate: 2.0e-4
+    warmup_frac: 0.06               # first 6% of steps ramp the learning rate up from zero
+    max_grad_norm: 1.0              # cap on any single nudge
+    seed: 20261107
+    health_check_train_n: 20000     # train notes scored after training, for the train-vs-validation gap

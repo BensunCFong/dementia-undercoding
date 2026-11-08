@@ -21,7 +21,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
 from .cohort import load_config
-from .evaluate import report, score
+from .evaluate import report, save_scores, score
 from .splits import load_notes
 
 # Fixed, untuned settings. Tuning them on validation and then reporting
@@ -50,7 +50,10 @@ def build_pipeline(params: dict = PARAMS) -> Pipeline:
 
 
 def fit_and_score(notes: pd.DataFrame, label: str, params: dict = PARAMS) -> dict:
-    """Fit on split == 'train', score on split == 'validation'. Returns metrics only."""
+    """Fit on split == 'train', score on split == 'validation'.
+
+    Returns metrics, plus val_scores: one probability per validation note, in row order.
+    """
     train = notes[notes["split"] == "train"]
     val = notes[notes["split"] == "validation"]
 
@@ -60,13 +63,15 @@ def fit_and_score(notes: pd.DataFrame, label: str, params: dict = PARAMS) -> dic
     fit_seconds = time.perf_counter() - start
 
     # Column 1 of predict_proba is P(label = 1): the score we rank by.
-    val_result = score(val[label], pipe.predict_proba(val["text"])[:, 1])
+    val_scores = pipe.predict_proba(val["text"])[:, 1]
+    val_result = score(val[label], val_scores)
     train_result = score(train[label], pipe.predict_proba(train["text"])[:, 1])
     return {
         "val": val_result,
         "train": train_result,
         "vocab_size": len(pipe.named_steps["tfidf"].vocabulary_),
         "fit_seconds": fit_seconds,
+        "val_scores": val_scores,
     }
 
 
@@ -76,6 +81,10 @@ def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_c
     notes = notes[notes["split"].isin(["train", "validation"])]   # drop test first
 
     result = fit_and_score(notes, label)
+    val_ids = notes.loc[notes["split"] == "validation", "hadm_id"]
+    save_scores(val_ids, result["val_scores"],
+                Path(cfg["paths"]["scores"]) / f"arm1-tfidf-lr-{label}.parquet")
+    
     print(report(f"arm 1 TF-IDF+LR, {label}, validation", result["val"]))
     print(report(f"arm 1 TF-IDF+LR, {label}, train     ", result["train"]))
 

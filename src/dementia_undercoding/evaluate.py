@@ -6,7 +6,10 @@ come later and build on score().
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 from sklearn.metrics import average_precision_score
 
 
@@ -50,3 +53,17 @@ def report(name: str, result: dict) -> str:
         f"(chance {result['prevalence']:.3f}, lift {result['lift']:.1f}x, "
         f"{result['n_pos']:,} positives of {result['n']:,})"
     )
+
+
+def save_scores(hadm_ids, y_score, path: str | Path) -> None:
+    """Write one row per note, hadm_id and score, so arms can later be compared note by note.
+
+    Numbers only: no text and no labels (labels join back from notes.parquet).
+    Kept under data/, never sent to MLflow.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({
+        "hadm_id": np.asarray(hadm_ids),
+        "score": np.asarray(y_score, dtype=float),
+    }).to_parquet(path, index=False)    
