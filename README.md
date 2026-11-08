@@ -164,6 +164,8 @@ the patients most likely to have undiagnosed dementia and would bias the study t
 galantamine) and memantine are close to dementia-specific and sit in `prescriptions`. Not used as
 a label, since they capture treated dementia only. Used to check the gap set: elevated rates in
 model-positive/code-negative admissions is orthogonal evidence the gap is real.
+Scored as each arm's PR-AUC at ranking drug-treated admissions among the uncoded ones (a check,
+not a training label); rules fixed 2026-11-08 before any arm was scored on it (`docs/explainers.md`).
 
 **Validator 2 — future-coded confirmation.** MIMIC-IV has multiple admissions per patient. A
 patient who is note-positive and code-negative in 2016 and then carries a dementia code in 2018

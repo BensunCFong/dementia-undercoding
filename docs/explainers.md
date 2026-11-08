@@ -233,3 +233,78 @@ the full and first-512 runs measures how much explicit signal truncation cuts of
 **Tests.** 34 invented sentences with known answers pin down every rule above
 (`tests/test_arm0_regex.py`). Rule-based negation is good but not perfect (published NegEx
 precision is in the 80-90% range); its known weaknesses are part of what the comparison shows.
+
+## Validator 1: dementia drug orders, fixed before any arm is scored on it
+
+Every arm is scored against ICD codes, and the project is about codes that are missing. So a
+second yardstick is needed, one the arms never read and the codes do not define. The four
+dementia drugs (donepezil, rivastigmine, galantamine, memantine, with brand names) are close to
+dementia-specific and sit in `prescriptions`. Every rule below was fixed on 2026-11-08 from counts
+of labels, ages and drug orders on validation. No arm's scores had been looked at.
+
+**The label.** Among uncoded admissions (`dementia_core` = 0), positive = at least one order for a
+dementia drug during the same admission (`hadm_id`). A dementia code on a later admission is
+validator 2's job, kept separate. Drug names are matched as text in `prescriptions.drug`; on
+2026-11-08 every matching string was checked by eye and all were genuine (generic, brand, patch,
+strength, one typo).
+
+**The score.** Each arm's PR-AUC on this label, with the same patient-level paired bootstrap as the
+code label, plus a curve of the drug rate among the top *k* uncoded notes for every *k*. No
+cutoff and no bins, so nothing is chosen after the results are seen.
+
+**Who is in the pool.**
+
+| Rule | Why | Validation count |
+|---|---|---|
+| Uncoded admissions only | The question is whether arms find dementia the codes missed | 21,872 notes; 200 with an order (0.9%) |
+| MCI-coded admissions dropped (main); kept (sensitivity) | Every arm defines MCI as not dementia; donepezil is used off-label for MCI | 48 MCI-coded, 7 with an order |
+| Main pool | | **21,824 notes; 193 positives, 120 patients; chance 0.009** |
+
+For scale: 288 of the 820 coded notes (35.1%) had an order. About a third of coded dementia is
+treated in hospital, so even a perfect arm will not see most real dementia through this label.
+
+**Rows of the validator table.**
+
+1. **Main:** the pool above.
+2. **Hidden:** positives are the 92 drug-positive notes (58 patients) whose history text has no
+   explicit dementia mention by arm 0's frozen rules. The 101 explicit drug-positive notes are
+   left out, so mentioning the word earns nothing. Arm 0 sits at chance here by construction. This
+   row is the implicit-language test of PLAN §6. "Hidden" means absent from the history sections
+   the arms read, not from the whole record.
+3. **Clean:** the main row without the 11 notes that name a dementia drug in their text, so no
+   arm is credited for reading the drug name.
+4. **Sensitivity:** MCI-coded admissions kept in.
+
+**Arms.** Arm 0 (all three variants; 0+drugs marked "partly checks itself"), arm 1, arm 1b, both
+LoRA runs, arm 3 if it scores all of validation, and an **age-only arm** (score = age at
+admission). Age-only is the reference: drug orders rise steeply with age (54% of the pool is
+under 65 and almost none of them have an order), so an arm must beat age, not chance, before its
+validator score means anything. Age-only is also added to the code-label table as a floor.
+
+**Age bands, description only.** Under 85 and 85+, chosen from the age distribution of the
+positives (tertile cuts 82 and 87; 85 is close to their median), giving about 66 and 62
+patients. A band, or any other split, is reported only with at least 30 positive patients; the
+rule was set before the counts were seen. The same bands carry to test unchanged.
+
+**Delirium.** 13 positives (11 patients) are delirium-coded: below the rule, so reported as a
+count, not a split.
+
+**Validation, then test once.** Everything is built and run on validation and reported as
+development. Nothing changes after those results. Test is scored once, with every rule above
+unchanged, alongside the code-label results. Validator numbers are compared between arms within a
+split, never across splits: prescribing changed between 2008-2013 and 2017-2019, and MIMIC's
+shifted dates allow only approximate matching to real-world drug history.
+
+**How to read it, written before any result.**
+
+- A high score is evidence that an arm finds real, uncoded dementia. A low score is weak evidence
+  against: the label sees treated dementia only.
+- The main row favours explicit mentions (a treated patient usually has a named diagnosis), so a
+  strong arm 0 there is expected, not a win for regex. The hidden row is the test that matters
+  for LoRA and arm 3.
+- The trained arms (1, 1b, LoRA) were taught that 1,578 treated, uncoded train notes are
+  negatives (0.81% of uncoded train notes, against 7,905 coded positives). The validator is
+  tilted against them; arms 0 and 3 never saw a label.
+- Advanced dementia is often untreated (no orders at all in the 95+ group), and quiet patients
+  are documented less than agitated ones. Neither is visible here.
+- Uncoded MCI treated with donepezil cannot be separated out without reading notes.

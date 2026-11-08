@@ -83,6 +83,11 @@ LoRA's score): full note 0.622, first 512 tokens 0.572, PMH first then 512 0.610
 
 ## Decided, not yet in code
 
+- **Validator 1, dementia drug orders** (2026-11-08): design fixed before any arm is scored on
+  it; full rules in `docs/explainers.md`. Validation: 193 drug-positive uncoded notes (120
+  patients) in the main pool, 92 of them with no explicit mention (the hidden row). Age-only arm
+  as reference. Next: choose the Week 3 gap-set arm, then build `validator_rx.py`.
+
 - **ICD-10 in train:** train is about 19% ICD-10 (43,298 of 227,130 admissions), because a
   train patient's later admissions follow them into train. Patients never cross splits, so there
   is no leakage. Decision: keep and document; docs corrected 2026-11-07. Still to do:
