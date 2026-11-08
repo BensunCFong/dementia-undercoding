@@ -1,6 +1,6 @@
 # Project status
 
-As of 2026-11-08, late morning: repo private on GitHub, 116 tests (106 + 1 skipped in CI, which
+As of 2026-11-08, evening: repo private on GitHub, 116 tests (106 + 1 skipped in CI, which
 installs only core packages).
 
 ## Results so far (validation only; test untouched)
@@ -17,11 +17,13 @@ Difference = arm minus arm 2 LoRA main, with every arm scored on the same resamp
 | 1, TF-IDF + logistic regression | Each word separately | 0.730 [0.688, 0.766] | -0.038 [-0.063, -0.014] | train 0.822 |
 | 1b, LightGBM | Words in combination | 0.792 [0.757, 0.824] | +0.023 [+0.002, +0.045] | inner slice 0.769, train 0.973; 180 trees |
 | 2, LoRA main (first 512 tokens) | Words in context | 0.768 [0.734, 0.800] | | train sample 0.730 (below validation: no overfitting, likely underfit); 6.15 h |
-| 2, LoRA head + tail | First 128 + last 382 tokens | running | | started 2026-11-08 ~11:15 |
+| 2, LoRA head + tail | First 128 + last 382 tokens | 0.761 [0.723, 0.796] | -0.007 [-0.029, +0.012] | train sample 0.734; indistinguishable from main |
 
 Reading: LoRA clearly beats the regex (PLAN §6's hypothesis, on validation) and TF-IDF + LR.
 LightGBM probably ranks slightly better than LoRA, but the interval only just clears zero and it
-is one of five comparisons; it would likely not survive a multiplicity correction.
+is one of several comparisons; it would likely not survive a multiplicity correction. Head + tail
+matched LoRA main: extra context from the end of the note did not help, so truncation does not
+explain LightGBM's lead.
 
 Labels are ICD codes, and the project is about undercoding: a note that describes dementia but
 carries no code counts as a false positive here. About 290 validation notes mention dementia (not
@@ -30,7 +32,8 @@ yet validated. So PR-AUC against codes is not the whole test of which arm is mos
 
 **Truncation check** (`truncation.py`, arm 0 on validation; measures explicit mentions kept, not
 LoRA's score): full note 0.622, first 512 tokens 0.572, PMH first then 512 0.610, head 128 + tail
-382 **0.621**. Head + tail keeps nearly every explicit mention. Chosen for the follow-up run.
+382 **0.621**. Head + tail keeps nearly every explicit mention. Chosen for the follow-up run, which
+matched LoRA main (above).
 
 ## Done
 
@@ -101,16 +104,13 @@ LoRA's score): full note 0.622, first 512 tokens 0.572, PMH first then 512 0.610
 
 Stage 3, piece 3: every arm on validation, then a fair comparison.
 
-1. Running (started 2026-11-08 ~11:15, about 6.5 h): arm 2 head + tail. Log in
-   `data/derived/logs/arm2-head_tail.log`.
-2. **Stop rule, written before the head + tail result:**
-   - This is the only truncation run. When it ends, add it to `compare_arms.ARMS` and compare it
-     with LoRA main and with LightGBM.
-   - Chunking runs only if head + tail beats LoRA main with its difference interval entirely
-     above zero (evidence that seeing more of the note helps). Otherwise LoRA tuning stops here.
-   - Whatever the result, both LoRA runs are reported; neither is dropped.
-3. Next: commit, pre-public scan, arm 3 decision; `icd_version` and subgroups after the run ends
-   (the rebuild uses every core and rewrites `notes.parquet`).
+1. **Arm 2 head + tail finished** 2026-11-08 (about 6 h). Stop rule, written before the result:
+   chunking only if head + tail beat LoRA main with its difference interval entirely above zero.
+   It did not (-0.007 [-0.029, +0.012]), so **no chunking; LoRA tuning stops here.** Both LoRA
+   runs are reported.
+2. Next: arm 3 timing (`arm3_llm --n 200`, MedGemma 1.5 4B then Qwen3.5-9B), then full validation
+   or a sample; then the Week 3 gap-set arm (decided before any validator score); then
+   `validator_rx.py` and the age-only arm; `icd_version` and subgroups.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 

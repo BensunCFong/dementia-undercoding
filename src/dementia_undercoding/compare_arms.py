@@ -25,6 +25,7 @@ ARMS = {
     "arm 1 TF-IDF+LR": "arm1-tfidf-lr",
     "arm 1b LightGBM": "arm1b-lgbm",
     "arm 2 LoRA main": "arm2-lora-main",
+    "arm 2 LoRA h+t": "arm2-lora-main-head_tail",
 }
 
 
