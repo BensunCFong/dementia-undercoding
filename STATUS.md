@@ -108,8 +108,19 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
    chunking only if head + tail beat LoRA main with its difference interval entirely above zero.
    It did not (-0.007 [-0.029, +0.012]), so **no chunking; LoRA tuning stops here.** Both LoRA
    runs are reported.
-2. Next: arm 3 timing (`arm3_llm --n 200`, MedGemma 1.5 4B then Qwen3.5-9B), then full validation
-   or a sample; then the Week 3 gap-set arm (decided before any validator score); then
+2. **Arm 3 test rule, written 2026-11-08 evening before the full validation results were seen**
+   (MedGemma 1.5 4B and Qwen3.5-9B running overnight, about 16 h):
+   - A model goes to test only if, on validation, its code-label PR-AUC is at least arm 1's
+     (0.730), **or** it beats the age-only arm on the drug validator's hidden row with the
+     difference interval entirely above zero.
+   - If both models qualify, only the better one goes to test (by code-label PR-AUC; by the hidden
+     row if their difference interval includes zero).
+   - Arm 3's validation results are reported whatever the outcome; if it does not go to test, the
+     write-up says so and gives this rule.
+   - Arms 0, 1, 1b and both LoRA runs are frozen and may be scored on test without waiting for arm
+     3, once the Week 3 rules (arm, split, cutoff) are written.
+3. Next: arm 3 full validation (timing on 200 notes: MedGemma 4.9 h, Qwen 10.8 h); then the
+   Week 3 gap-set arm (decided before any validator score); then
    `validator_rx.py` and the age-only arm; `icd_version` and subgroups.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
