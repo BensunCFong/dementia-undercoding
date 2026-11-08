@@ -1,23 +1,36 @@
 # Project status
 
-As of 2026-11-07, late evening: repo private on GitHub, CI green, 101 tests (94 + 1 skipped in CI,
-which installs only core packages).
+As of 2026-11-08, late morning: repo private on GitHub, 116 tests (106 + 1 skipped in CI, which
+installs only core packages).
 
 ## Results so far (validation only; test untouched)
 
-| Arm | How it reads the note | PR-AUC | Notes |
-|---|---|---|---|
-| Chance | | 0.036 | 820 positives of 22,692 |
-| 0, regex | Explicit mentions, NegEx-style context | 0.622 | any mention: flags 4.1%, precision 0.689, recall 0.784 |
-| 0+drugs | Same, plus the four dementia drugs | 0.623 | drugs add almost nothing |
-| 0, first 512 tokens | Arm 2's window only | 0.572 | about 5% of coded notes have their only explicit mention past token 512 |
-| 1, TF-IDF + logistic regression | Each word separately | 0.730 | train 0.822 |
-| 1b, LightGBM | Words in combination | 0.792 | inner slice 0.769, train 0.973; 180 trees |
-| 2, LoRA on Bio_ClinicalBERT | Words in context | running | |
+Intervals: 95%, from 2,000 resamples of patients (`python -m dementia_undercoding.compare_arms`).
+Difference = arm minus arm 2 LoRA main, with every arm scored on the same resampled patients.
 
-Differences between arms are not yet tested: the paired bootstrap (by patient) is next. About
-290 validation notes mention dementia (not negated, not a relative) but carry no dementia code:
-an early sign for the project question, not yet validated.
+| Arm | How it reads the note | PR-AUC [95%] | Minus LoRA main [95%] | Notes |
+|---|---|---|---|---|
+| Chance | | 0.036 | | 820 positives of 22,692 notes, 8,458 patients |
+| 0, regex | Explicit mentions, NegEx-style context | 0.622 [0.574, 0.664] | -0.146 [-0.176, -0.119] | any mention: flags 4.1%, precision 0.689, recall 0.784 |
+| 0+drugs | Same, plus the four dementia drugs | 0.623 [0.576, 0.666] | -0.145 [-0.177, -0.116] | drugs add almost nothing |
+| 0, first 512 tokens | Arm 2's window only | 0.572 [0.523, 0.614] | -0.196 [-0.223, -0.172] | about 5% of coded notes have their only explicit mention past token 512 |
+| 1, TF-IDF + logistic regression | Each word separately | 0.730 [0.688, 0.766] | -0.038 [-0.063, -0.014] | train 0.822 |
+| 1b, LightGBM | Words in combination | 0.792 [0.757, 0.824] | +0.023 [+0.002, +0.045] | inner slice 0.769, train 0.973; 180 trees |
+| 2, LoRA main (first 512 tokens) | Words in context | 0.768 [0.734, 0.800] | | train sample 0.730 (below validation: no overfitting, likely underfit); 6.15 h |
+| 2, LoRA head + tail | First 128 + last 382 tokens | running | | started 2026-11-08 ~11:15 |
+
+Reading: LoRA clearly beats the regex (PLAN §6's hypothesis, on validation) and TF-IDF + LR.
+LightGBM probably ranks slightly better than LoRA, but the interval only just clears zero and it
+is one of five comparisons; it would likely not survive a multiplicity correction.
+
+Labels are ICD codes, and the project is about undercoding: a note that describes dementia but
+carries no code counts as a false positive here. About 290 validation notes mention dementia (not
+negated, not a relative) but carry no dementia code: an early sign for the project question, not
+yet validated. So PR-AUC against codes is not the whole test of which arm is most useful.
+
+**Truncation check** (`truncation.py`, arm 0 on validation; measures explicit mentions kept, not
+LoRA's score): full note 0.622, first 512 tokens 0.572, PMH first then 512 0.610, head 128 + tail
+382 **0.621**. Head + tail keeps nearly every explicit mention. Chosen for the follow-up run.
 
 ## Done
 
@@ -55,6 +68,18 @@ an early sign for the project question, not yet validated.
 - **CI fixed 2026-11-07:** mlflow is imported inside `run()` functions and pyarrow is a declared
   core dependency. In the test process, LightGBM and PyTorch are both single-threaded: each brings
   its own OpenMP, and two copies starting threads in one process deadlock on macOS.
+- **Arm 2 main run** (2026-11-07/08): 25,364 steps, 6.15 h, finished cleanly. The fallback watcher
+  read 0.768 >= 0.76 and stood down, as designed.
+- **Paired bootstrap** (`evaluate.paired_bootstrap`, `evaluate.compare`, `compare_arms.py`):
+  resamples patients, not notes; every arm scored on the same resampled patients; 95% percentile
+  intervals from 2,000 resamples, seed fixed in config before any interval was seen. Each note is
+  weighted by how often its patient was drawn (same result as copying rows). Same answer on any
+  number of cores. Reads saved scores and labels only.
+- **Truncation check** (`truncation.py`): arm 0 on three 512-token windows; results above.
+- **Arm 2 head + tail** (`arm2_lora.py --window head_tail`): token-level, first 128 + last 382,
+  `[CLS]`/`[SEP]`/padding built by hand (transformers 5.18 dropped the helper). Notes that fit in
+  512 tokens get exactly the main run's input (tested). Its own run name, adapter folder and score
+  file. Chosen 2026-11-08 **after** the main score and the bootstrap were seen; recorded in config.
 
 ## Decided, not yet in code
 
@@ -71,15 +96,16 @@ an early sign for the project question, not yet validated.
 
 Stage 3, piece 3: every arm on validation, then a fair comparison.
 
-1. Running (started 2026-11-07 ~21:15): arm 2 main run, about 25,400 steps, done ~03:30-04:00.
-   Log in `data/derived/logs/arm2-main.log`. A watcher starts the rank-12 fallback on its own if
-   validation PR-AUC < 0.76 (done ~10:00-10:30). Schedule in `docs/explainers.md` ("Run plan").
-2. Next, in order:
-   - choose the truncation follow-up (PMH first, head and tail, or chunking) **before** reading
-     arm 2's score; arm 0's 0.622 -> 0.572 drop at 512 tokens is the evidence
-   - re-run arm 1 to save its per-note scores (the only arm without them)
-   - patient-level bootstrap CIs and paired comparisons in `evaluate.py`: arm 2 vs each arm
-   - optional GPU slots Sunday 12:00-18:00 and 21:00-03:00; GPU free by Monday
+1. Running (started 2026-11-08 ~11:15, about 6.5 h): arm 2 head + tail. Log in
+   `data/derived/logs/arm2-head_tail.log`.
+2. **Stop rule, written before the head + tail result:**
+   - This is the only truncation run. When it ends, add it to `compare_arms.ARMS` and compare it
+     with LoRA main and with LightGBM.
+   - Chunking runs only if head + tail beats LoRA main with its difference interval entirely
+     above zero (evidence that seeing more of the note helps). Otherwise LoRA tuning stops here.
+   - Whatever the result, both LoRA runs are reported; neither is dropped.
+3. Next: commit, pre-public scan, arm 3 decision; `icd_version` and subgroups after the run ends
+   (the rebuild uses every core and rewrites `notes.parquet`).
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
@@ -92,4 +118,4 @@ Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 - Scan tracked files for employer names or personal details
 - Recreate the GitHub repo so commits from before the 2026-11-06 history rewrite are gone from GitHub
-- Then make it public, ideally after the first paired comparison
+- Then make it public (the first paired comparison is done, 2026-11-08)

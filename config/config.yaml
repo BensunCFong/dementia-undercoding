@@ -160,6 +160,11 @@ lora:
     dropout: 0.1
     target_modules: ["query", "value"]
   fallback_trigger: 0.76
+  # Truncation follow-up (--window head_tail). Chosen 2026-11-08 AFTER the main score (0.768) and the
+  # paired bootstrap (LightGBM ahead by +0.023 [+0.002, +0.045]) were seen. Evidence: arm 0 on the
+  # first 512 tokens lost 0.050 of PR-AUC; on head 128 + tail 382 it kept 0.621 of 0.622 (truncation.py).
+  head_tail:
+    head: 128                       # first 128 tokens + last 382: 510, plus [CLS] and [SEP]
   out_dir: "data/derived/arm2"      # trained adapters; under data/, never logged to MLflow
   train:
     label: "dementia_core"
@@ -171,3 +176,10 @@ lora:
     seed: 20261107
     health_check_train_n: 20000     # train notes scored after training, for the train-vs-validation gap
 
+
+compare:
+  # Patient-level paired bootstrap (evaluate.compare). Fixed 2026-11-08, before any interval was seen.
+  reference: "arm 2 LoRA main"    # every other arm's difference is measured against this one
+  n_boot: 2000                    # resamples; enough for stable 95% percentile intervals
+  seed: 20261108
+  ci: 0.95

@@ -127,3 +127,37 @@ def test_fallback_rule(tmp_path, status, pr_auc, expect_fallback):
     ran = fallback_if_needed(config_path, poll_seconds=0, start=lambda *a, **k: started.append(k))
     assert ran == expect_fallback
     assert started == ([{"variant": "fallback"}] if expect_fallback else [])
+
+def test_head_tail_matches_plain_cut_when_notes_fit(tokenizer):
+    from dementia_undercoding.arm2_lora import _encode
+
+    texts = ["history of dementia", "fever", "no cognitive issues chest pain"]
+    plain = _encode(tokenizer, texts, 16, "cpu")
+    ht = _encode(tokenizer, texts, 16, "cpu", head=4)
+    assert set(plain) == set(ht)
+    for key in plain:
+        assert torch.equal(plain[key], ht[key]), key
+
+
+def test_head_tail_keeps_first_and_last_tokens(tokenizer):
+    from dementia_undercoding.arm2_lora import _encode
+
+    # One token per word. max_len 8 leaves 6 for text: the first 2 and the last 4.
+    words = WORDS                                       # 10 words, 10 tokens
+    enc = _encode(tokenizer, [" ".join(words), "fever"], 8, "cpu", head=2)
+    kept = words[:2] + words[-4:]
+    expected = [tokenizer.cls_token_id, *tokenizer.convert_tokens_to_ids(kept), tokenizer.sep_token_id]
+    assert enc["input_ids"][0].tolist() == expected
+    assert enc["input_ids"].shape == (2, 8)
+    assert enc["attention_mask"][1].tolist() == [1, 1, 1, 0, 0, 0, 0, 0]   # short note padded
+
+
+def test_train_and_predict_accept_head(tokenizer):
+    from dementia_undercoding.arm2_lora import predict, train
+
+    texts, labels = fake_notes(n=40)
+    model = add_lora(tiny_bert(), LORA)
+    train(model, tokenizer, texts, labels, device="cpu", batch_size=8, learning_rate=1e-2,
+          warmup_frac=0.1, max_grad_norm=1.0, max_len=6, seed=0, passes=1, head=2)
+    probs = predict(model, tokenizer, texts, device="cpu", max_len=6, head=2)
+    assert probs.shape == (40,)

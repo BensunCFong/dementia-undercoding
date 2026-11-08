@@ -7,6 +7,10 @@ runs. Settings come from the `lora:` block in config.yaml.
 The trained adapter is saved under data/ (gitignored), never to MLflow: it is
 learned from note text, so it stays on this machine with the notes.
 
+Two windows on notes longer than 512 tokens (--window):
+  first      the first 510 tokens (the main run)
+  head_tail  the first `head` tokens + the last 510 - head (the truncation follow-up)
+
 Run:
   smoke test:  .venv/bin/python -m dementia_undercoding.arm2_lora --smoke
   full run:    caffeinate -i .venv/bin/python -m dementia_undercoding.arm2_lora
@@ -100,9 +104,38 @@ def time_training_step(
     return (time.perf_counter() - start) / steps
 
 
-def _encode(tokenizer, texts: list[str], max_len: int, device: str) -> dict:
-    """Text -> token ids, cut at max_len, padded only to the longest note in this batch."""
-    enc = tokenizer(texts, truncation=True, max_length=max_len, padding=True, return_tensors="pt")
+def head_tail_ids(tokenizer, texts: list[str], max_len: int, head: int) -> list[list[int]]:
+    """Token ids per text, before [CLS]/[SEP] are added: the whole text if it fits,
+    else its first `head` tokens + as many from the end as the budget allows.
+
+    The budget is max_len minus 2, for [CLS] and [SEP]: 510 of 512.
+    """
+    budget = max_len - 2
+    tail = budget - head
+    ids = tokenizer(texts, add_special_tokens=False)["input_ids"]
+    return [x if len(x) <= budget else x[:head] + x[-tail:] for x in ids]
+
+
+def _encode(tokenizer, texts: list[str], max_len: int, device: str, head: int | None = None) -> dict:
+    """Text -> token ids, at most max_len, padded only to the longest note in this batch.
+
+    head=None keeps the first max_len tokens. head=128 keeps the first 128 and the last
+    max_len - 2 - 128, then builds exactly what the plain cut builds: [CLS] ids [SEP],
+    padding on the right, attention_mask 1 on real tokens, token_type_ids all 0.
+    """
+    if head is None:
+        enc = tokenizer(texts, truncation=True, max_length=max_len, padding=True, return_tensors="pt")
+    else:
+        rows = [[tokenizer.cls_token_id, *x, tokenizer.sep_token_id]
+                for x in head_tail_ids(tokenizer, texts, max_len, head)]
+        width = max(len(r) for r in rows)
+        input_ids = torch.full((len(rows), width), tokenizer.pad_token_id, dtype=torch.long)
+        attention_mask = torch.zeros((len(rows), width), dtype=torch.long)
+        for i, r in enumerate(rows):
+            input_ids[i, :len(r)] = torch.tensor(r)
+            attention_mask[i, :len(r)] = 1
+        enc = {"input_ids": input_ids, "token_type_ids": torch.zeros_like(input_ids),
+               "attention_mask": attention_mask}
     return {k: v.to(device) for k, v in enc.items()}
 
 
@@ -120,6 +153,7 @@ def train(
     max_len: int,
     seed: int,
     passes: int = 1,
+    head: int | None = None,
     log_every: int = 100,
     log: Callable[[int, int, float, float], None] | None = None,
 ) -> None:
@@ -150,7 +184,7 @@ def train(
         order = rng.permutation(len(texts))             # a fresh order each pass
         for b in range(steps_per_pass):
             idx = order[b * batch_size:(b + 1) * batch_size]
-            batch = _encode(tokenizer, [texts[i] for i in idx], max_len, device)
+            batch = _encode(tokenizer, [texts[i] for i in idx], max_len, device, head)
             y = torch.tensor(labels[idx], dtype=torch.float32, device=device).unsqueeze(1)
 
             logits = model(**batch).logits              # 1. predict
@@ -172,13 +206,14 @@ def train(
 
 @torch.no_grad()
 def predict(
-    model: nn.Module, tokenizer, texts: list[str], *, device: str, max_len: int, batch_size: int = 64
+    model: nn.Module, tokenizer, texts: list[str], *, device: str, max_len: int, batch_size: int = 64,
+    head: int | None = None,
 ) -> np.ndarray:
     """P(label = 1) for each note, in the order given."""
     model.to(device).eval()                              # dropout off
     out = []
     for i in range(0, len(texts), batch_size):
-        batch = _encode(tokenizer, texts[i:i + batch_size], max_len, device)
+        batch = _encode(tokenizer, texts[i:i + batch_size], max_len, device, head)
         out.append(torch.sigmoid(model(**batch).logits).squeeze(1).float().cpu().numpy())
     return np.concatenate(out)
 
@@ -187,6 +222,7 @@ def run(
     config_path: str | Path = "config/config.yaml",
     variant: str = "main",
     smoke: bool = False,
+    window: str = "first",
 ) -> dict:
     """Train, save the adapter under data/, score validation, log to MLflow.
 
@@ -197,6 +233,10 @@ def run(
     cfg = load_config(config_path)
     lcfg, tcfg = cfg["lora"], cfg["lora"]["train"]
     label, seed, device = tcfg["label"], tcfg["seed"], "mps" if torch.backends.mps.is_available() else "cpu"
+    if window not in ("first", "head_tail"):
+        raise ValueError(f"window must be 'first' or 'head_tail', not {window!r}")
+    head = lcfg["head_tail"]["head"] if window == "head_tail" else None
+    name = variant if window == "first" else f"{variant}-{window}"     # main run keeps its old names
 
     notes = load_notes(config_path, columns=[label, "text"])
     notes = notes[notes["split"].isin(["train", "validation"])]   # drop test first
@@ -213,11 +253,11 @@ def run(
 
     mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
     mlflow.set_experiment(cfg["mlflow"]["experiment"])
-    run_name = f"arm2-lora-{variant}-{label}" + ("-smoke" if smoke else "")
+    run_name = f"arm2-lora-{name}-{label}" + ("-smoke" if smoke else "")
     with mlflow.start_run(run_name=run_name, tags={"smoke": str(smoke)}):
         mlflow.log_params({
             "arm": "2", "variant": variant, "label": label, "scored_on": "validation",
-            "model": lcfg["model"], "max_len": lcfg["max_len"],
+            "model": lcfg["model"], "max_len": lcfg["max_len"], "window": window, "head": head,
             **{f"lora_{k}": v for k, v in lcfg[variant].items()},
             **tcfg, "n_train": len(train_df), "device": device,
         })
@@ -233,28 +273,28 @@ def run(
             model, tokenizer, train_df["text"].tolist(), train_df[label].to_numpy(),
             device=device, batch_size=tcfg["batch_size"], learning_rate=tcfg["learning_rate"],
             warmup_frac=tcfg["warmup_frac"], max_grad_norm=tcfg["max_grad_norm"],
-            max_len=lcfg["max_len"], seed=seed, passes=tcfg["passes"], log=log,
+            max_len=lcfg["max_len"], seed=seed, passes=tcfg["passes"], head=head, log=log,
         )
         fit_seconds = time.perf_counter() - start
         if not smoke:                    # save before scoring, so a crash there loses no training
-            out = Path(lcfg["out_dir"]) / variant
+            out = Path(lcfg["out_dir"]) / name
             model.save_pretrained(out)
             print(f"adapter saved to {out}", flush=True)
 
         print("scoring validation ...", flush=True)
         val_scores = predict(model, tokenizer, val_df["text"].tolist(),
-                             device=device, max_len=lcfg["max_len"])
+                             device=device, max_len=lcfg["max_len"], head=head)
         val_result = score(val_df[label], val_scores)
         if not smoke:
             save_scores(val_df["hadm_id"], val_scores,
-                        Path(cfg["paths"]["scores"]) / f"arm2-lora-{variant}-{label}.parquet")
+                        Path(cfg["paths"]["scores"]) / f"arm2-lora-{name}-{label}.parquet")
 
         print("scoring a train sample (health check) ...", flush=True)
         health_result = score(health_df[label], predict(model, tokenizer, health_df["text"].tolist(),
-                                                        device=device, max_len=lcfg["max_len"]))
+                                                        device=device, max_len=lcfg["max_len"], head=head))
 
-        print(report(f"arm 2 LoRA {variant}, {label}, validation  ", val_result))
-        print(report(f"arm 2 LoRA {variant}, {label}, train sample", health_result))
+        print(report(f"arm 2 LoRA {name}, {label}, validation  ", val_result))
+        print(report(f"arm 2 LoRA {name}, {label}, train sample", health_result))
         mlflow.log_metrics({f"val_{k}": v for k, v in val_result.items()})
         mlflow.log_metrics({f"train_sample_{k}": v for k, v in health_result.items()})
         mlflow.log_metric("fit_seconds", fit_seconds)
@@ -309,10 +349,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Arm 2: LoRA fine-tune of Bio_ClinicalBERT.")
     parser.add_argument("--variant", default="main", choices=["main", "fallback"])
     parser.add_argument("--smoke", action="store_true", help="800 train notes, 2,000 validation notes")
+    parser.add_argument("--window", default="first", choices=["first", "head_tail"],
+                        help="which 512 tokens of a long note the model reads")
     parser.add_argument("--fallback-if-needed", action="store_true",
                         help="wait for the main run, then run the fallback only if the trigger says so")
     args = parser.parse_args()
     if args.fallback_if_needed:
         fallback_if_needed()
     else:
-        run(variant=args.variant, smoke=args.smoke)
+        run(variant=args.variant, smoke=args.smoke, window=args.window)
