@@ -26,7 +26,7 @@ The DUA prohibits redistribution and prohibits sending the data through third-pa
 online services. Consequences, applied throughout:
 
 - Every model runs locally or on infrastructure I control. No hosted inference.
-- MLflow logs metrics, parameters and model artifacts only. Never note text, never sample
+- MLflow logs metrics and parameters only; trained models stay under `data/`. Never note text, never sample
   predictions containing clinical content.
 - CI fails the build if a data file is committed. See `.github/workflows/ci.yml`.
 
@@ -102,7 +102,9 @@ Weak labels from ICD codes, four arms, temporal split, then investigation of the
 | 3 | Few-shot prompted local instruct model | Cost and quality comparison |
 
 **Split.** Temporal, on `patients.anchor_year_group`. Train 2008-2013, test 2017-2019.
-2014-2016 is held out entirely because it straddles the ICD-9 to ICD-10 transition.
+2014-2016 is held out entirely because it straddles the ICD-9 to ICD-10 transition. The band
+belongs to the patient, so train patients' later admissions come with them: train is about 19%
+ICD-10, test almost entirely ICD-10. Validation is 10% of train patients, drawn by patient.
 
 **Both coding systems kept.** MIMIC-IV spans 2008-2019 and the US moved to ICD-10 in October
 2015, so an ICD-10-only cohort would delete the training years. Both mappings live in
@@ -115,7 +117,7 @@ clinicians place the diagnostic boundary.
 **Metric.** PR-AUC. The positive class runs around 4% across all adults (8-10% among admissions
 aged 65+), so accuracy is meaningless here.
 
-**Sampling.** 50,000 documents, stratified on label and split.
+**Sampling.** None. Every train and test note is kept; arm 2 trains on all train notes.
 
 **Tokens.** Truncate to 512 by default — dementia history almost always appears early, in HPI and
 past medical history. Chunking with stride 128 is run as a comparison to test whether the tail
@@ -190,9 +192,9 @@ Local, on an M1 Max with 32GB unified memory.
 - **DuckDB** — cohort build, reads the gzipped CSVs in place
 - **PySpark + delta-spark** — note preprocessing, cohort written as Delta tables
 - **scikit-learn, LightGBM** — arms 0 and 1
-- **PyTorch, HuggingFace Transformers, PEFT** — arm 2, LoRA on MPS in fp16
+- **PyTorch, HuggingFace Transformers, PEFT** — arm 2, LoRA on MPS at full precision
 - **MLX or llama.cpp** — arm 3, 7-8B instruct model at 4-bit
-- **MLflow** — all four arms tracked, local file backend or a personal Azure ML workspace
+- **MLflow** — all four arms tracked, local SQLite backend under `data/` or a personal Azure ML workspace
 
 ---
 

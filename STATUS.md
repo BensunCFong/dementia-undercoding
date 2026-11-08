@@ -1,6 +1,6 @@
 # Project status
 
-As of 2026-11-07: repo private on GitHub, CI green, 54 tests.
+As of 2026-11-07: repo private on GitHub, 61 tests.
 
 ## Done
 
@@ -17,27 +17,33 @@ As of 2026-11-07: repo private on GitHub, CI green, 54 tests.
   Train 76,124 patients / 202,905 notes; validation 8,458 / 22,692 (core 3.61%, chance PR-AUC
   about 0.036); test untouched.
 - **MPS:** PyTorch sees the M1 Max GPU (4096x4096 matmul about 3.8x faster than CPU).
+- **Arm 1, TF-IDF + logistic regression** (`arm1_tfidf.py`): fixed, untuned settings. Validation
+  PR-AUC 0.730 (chance 0.036, lift 20x, 820 positives); train 0.822.
+- **Arm 2 set up** (`arm2_lora.py`): Bio_ClinicalBERT + LoRA, rank 8, alpha 16, query and value,
+  dropout 0.1; 295,681 trainable weights (0.27%). Batch 16 at 512 tokens: 0.84 s per step,
+  about 3 h per pass. fp16 gave no speed-up on this GPU, so training is full precision.
+  Pre-declared fallback: rank 12, alpha 24, runs only if validation PR-AUC < 0.76.
+- **Per-note scores** saved under `data/derived/scores/` (hadm_id, score) for paired comparison.
+- **MLflow** moved to SQLite under `data/` (MLflow 3.x refuses the old file store).
 
 ## Decided, not yet in code
 
 - **ICD-10 in train:** train is about 19% ICD-10 (43,298 of 227,130 admissions), because a
   train patient's later admissions follow them into train. Patients never cross splits, so there
-  is no leakage. Decision: keep and document. Still to do:
+  is no leakage. Decision: keep and document. PLAN §5, README, the config exclusion comment and
+  the "ICD-10 codes more dementia" claim were corrected 2026-11-07. Still to do:
   - add `icd_version` per admission to `cohort.py` and `dataset.py`
-  - correct PLAN §5 ("train ICD-9, test ICD-10")
-  - correct the 2014-2016 exclusion comment in config
-  - drop or redo the "ICD-10 years code more dementia (9.8% vs 7.8%)" claim, which compared
-    splits
   - report results by era
 
 ## In progress
 
 Stage 3, piece 3: a first LoRA run against a baseline, scored on validation only.
 
-1. Done: MPS check, validation split, minimal scorer (`evaluate.score()` / `report()`: PR-AUC
-   with prevalence and lift beside it).
-2. Next: arm 1 (TF-IDF + logistic regression) on validation, logged to MLflow.
-3. Then: LoRA lesson, time a 512-token batch on MPS, LoRA fine-tune of Bio_ClinicalBERT.
+1. Done: MPS check, validation split, minimal scorer, arm 1, LoRA set-up and timing.
+2. Running (started 2026-11-07 evening): arm 2 main run, all 202,905 train notes, two passes,
+   about 25,400 steps. Log in `data/derived/logs/arm2-main.log`.
+3. Next: re-run arm 1 to save its per-note scores; bootstrap CIs, including a paired arm 1 vs
+   arm 2 comparison; real token counts.
 
 Deferred from piece 2 (`evaluate.py`): bootstrap confidence intervals; subgroup breakdown by
 age band, sex, insurance, race, ICD era.
@@ -45,8 +51,7 @@ age band, sex, insurance, race, ICD era.
 ## Next
 
 - ML dependencies are installed (torch 2.14, transformers 5.18, peft 0.21, mlflow 3.15).
-- Arm 0: regex with negation. Arm 1: TF-IDF + logistic regression, LightGBM
-- Arm 2: LoRA on Bio_ClinicalBERT. Time a batch before setting `sample.n`
+- Arm 0: regex with negation. Arm 1 LightGBM variant
 - Open decision: keep arm 3 (prompted local LLM) or prune it
 
 ## Before going public

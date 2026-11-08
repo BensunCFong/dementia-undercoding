@@ -72,7 +72,7 @@ third-party APIs or online services, and recommends locally deployed models. Con
 
 - Every LLM in this project runs locally or on infrastructure I control. No OpenAI, no Bedrock,
   no hosted inference, no Databricks free tier.
-- MLflow logs metrics, parameters and model artifacts only. Never note text, never sample
+- MLflow logs metrics and parameters only; trained models stay under `data/`. Never note text, never sample
   predictions containing clinical content.
 - No data in the repo, ever. CI fails the build if a data file is committed.
 
@@ -84,7 +84,7 @@ third-party APIs or online services, and recommends locally deployed models. Con
 |-------|-------|-------|
 | Cohort build (DuckDB) | Mac | Reads gzipped CSVs in place, nothing copied |
 | Regex, TF-IDF, LightGBM | Mac | Trivial at this scale |
-| LoRA fine-tune (110M encoder) | Mac, MPS, fp16 | Overnight run, no quantization needed |
+| LoRA fine-tune (110M encoder) | Mac, MPS, full precision | About 3 h per pass; fp16 gave no speed-up on this GPU |
 | Prompted arm (7-8B, 4-bit) | Mac, MLX or llama.cpp | Fits comfortably in unified memory |
 
 **Rejected: AWS.** My platform experience is Azure and Databricks, and AWS would add a third
@@ -122,7 +122,11 @@ Weak labels from ICD codes, four arms, temporal split, then investigation of dis
 | 3 | Few-shot prompted local instruct model | Cost and quality comparison |
 
 **Split:** temporal, on `patients.anchor_year_group`. Train 2008-2013, test 2017-2019.
-2014-2016 held out entirely because it straddles the ICD-9 to ICD-10 transition.
+2014-2016 held out entirely because it straddles the ICD-9 to ICD-10 transition. The anchor
+band belongs to the patient, not the admission, so train patients bring their later admissions
+with them: train is about 19% ICD-10 (43,298 of 227,130 admissions), while test is all but one
+admission ICD-10. Patients never cross splits, so this is not leakage, but "train is ICD-9, test
+is ICD-10" is not accurate. Validation is 10% of train patients (seed 3), drawn by patient.
 
 **Both coding systems kept.** MIMIC-IV spans 2008-2019 and the US switched to ICD-10 in October
 2015, so ICD-10-only would delete the training years. The mapping is already written and tested,
@@ -137,8 +141,8 @@ where clinicians place the diagnostic boundary.
 **Metric:** PR-AUC. Positive class runs about 4% across all adults (8-10% among admissions aged
 65+), so accuracy is meaningless.
 
-**Sampling:** 50,000 documents, stratified on label and split. Ample for this question and keeps
-the fine-tune to an overnight run.
+**Sampling:** none. Every train and test note is kept. After timing a batch (2026-11-07), arm 2
+trains on all 202,905 train notes, two passes, overnight. The test set is never sampled.
 
 **Tokens:** truncate to 512 by default. Dementia history almost always appears early, in HPI and
 past medical history. Chunking with stride 128 is run as a comparison to test whether the tail
@@ -196,8 +200,10 @@ positive on core. The first full build (2026-10-03) gave 3.9-4.7% by split acros
 That is not a matching failure: over half the cohort is under 65, and among admissions aged 65+
 the rate is 7.8-9.8%. The 5-9% figure was never sourced; it fits older inpatients, not all
 adults. The cohort keeps all adults on purpose, since early-onset dementia is real. The build
-now checks the 65+ rate per split against a 5-15% sanity range. ICD-10 years code more dementia
-than ICD-9 years (test 9.8% vs train 7.8% at 65+), which the models will feel.
+now checks the 65+ rate per split against a 5-15% sanity range. Test codes more dementia than
+train at 65+ (9.8% vs 7.8%), but the splits differ in era, coding system and follow-up at once,
+so this is not evidence that ICD-10 itself codes more dementia. Reporting results by ICD version
+(an `icd_version` column, still to add) will separate them.
 
 ### Week 2 — the fine-tune
 

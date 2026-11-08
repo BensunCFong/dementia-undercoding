@@ -53,6 +53,8 @@ split:
     "2014 - 2016": >-
       Straddles the ICD-9 to ICD-10 transition (US switchover October 2015).
       Held out to keep the temporal contrast clean rather than harmonised away.
+      Note: bands belong to patients, so train patients' later admissions still
+      reach past 2015; train is about 19% ICD-10.
     "2020 - 2022": >-
       Present in MIMIC-IV v3.1 but not in MIMIC-IV-Note v2.2, which was built
       against MIMIC-IV v2.2. Exactly 1 admission in this band has a discharge
@@ -85,7 +87,8 @@ label:
   # dementia is near zero, so the all-adult rate (3.9-4.7% by split) is mostly
   # an age-mix number. The earlier "5-9%" expectation was never sourced.
   # First full build, 2026-10-03, 65+ only: train 7.81%, test 9.79%,
-  # exclude 9.59%. ICD-10 years code more dementia than ICD-9 years.
+  # exclude 9.59%. The splits differ in era, coding system and follow-up at
+  # once, so the gap is not evidence that ICD-10 itself codes more dementia.
   prevalence_check:
     min_age: 65
     core_range: [0.05, 0.15]
