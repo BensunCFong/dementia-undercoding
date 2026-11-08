@@ -1,6 +1,6 @@
 # Project status
 
-Last commit: `460292f` (2026-11-06). Repo private on GitHub, CI green, 41 tests.
+As of 2026-11-07: repo private on GitHub, CI green, 54 tests.
 
 ## Done
 
@@ -11,12 +11,15 @@ Last commit: `460292f` (2026-11-06). Repo private on GitHub, CI green, 41 tests.
   Train 225,597 notes, test 41,266. Core dementia about 4.7% on test.
 - **Known limitations, documented:** about 65% note coverage; 4.1% of test notes have no history
   section and are dropped.
+- **Validation split** (`splits.load_notes()`): 10% of train patients, grouped by `subject_id`,
+  `np.random.default_rng(3)`, chosen after comparing seeds 1-4. Patients are listed in `hadm_id`
+  order before the draw, the order the seed comparison saw, so row order cannot change it.
+  Train 76,124 patients / 202,905 notes; validation 8,458 / 22,692 (core 3.61%, chance PR-AUC
+  about 0.036); test untouched.
+- **MPS:** PyTorch sees the M1 Max GPU (4096x4096 matmul about 3.8x faster than CPU).
 
 ## Decided, not yet in code
 
-- **Validation split:** 10% of train patients, grouped by `subject_id`, plain random draw,
-  seed 3. Chosen after comparing seeds 1-4. In `config/config.yaml` but uncommitted, and the
-  indentation is off: `frac` and `seed` need two more spaces so they sit under `validation:`.
 - **ICD-10 in train:** train is about 19% ICD-10 (43,298 of 227,130 admissions), because a
   train patient's later admissions follow them into train. Patients never cross splits, so there
   is no leakage. Decision: keep and document. Still to do:
@@ -29,17 +32,19 @@ Last commit: `460292f` (2026-11-06). Repo private on GitHub, CI green, 41 tests.
 
 ## In progress
 
-Stage 3, piece 2: shared evaluation module (`src/dementia_undercoding/evaluate.py`).
+Stage 3, piece 3: a first LoRA run against a baseline, scored on validation only.
 
-1. PR-AUC (average precision): lesson done, not yet written. Print the prevalence baseline
-   (about 0.047 on test) next to every score.
-2. Bootstrap confidence intervals: next.
-3. Subgroup breakdown: age band, sex, insurance, race, ICD era.
+1. Done: MPS check, validation split, minimal scorer (`evaluate.score()` / `report()`: PR-AUC
+   with prevalence and lift beside it).
+2. Next: arm 1 (TF-IDF + logistic regression) on validation, logged to MLflow.
+3. Then: LoRA lesson, time a 512-token batch on MPS, LoRA fine-tune of Bio_ClinicalBERT.
+
+Deferred from piece 2 (`evaluate.py`): bootstrap confidence intervals; subgroup breakdown by
+age band, sex, insurance, race, ICD era.
 
 ## Next
 
 - ML dependencies are installed (torch 2.14, transformers 5.18, peft 0.21, mlflow 3.15).
-  Whether MPS is available hasn't been checked yet.
 - Arm 0: regex with negation. Arm 1: TF-IDF + logistic regression, LightGBM
 - Arm 2: LoRA on Bio_ClinicalBERT. Time a batch before setting `sample.n`
 - Open decision: keep arm 3 (prompted local LLM) or prune it
