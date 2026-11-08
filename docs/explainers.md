@@ -159,3 +159,31 @@ into fragments.
 in 2008-2012, so the model has likely read notes from some train and validation patients during
 pretraining. That is exposure to text, not labels: pretraining never saw a dementia code. It may
 flatter validation slightly; the test set (2017-2019) falls outside the overlap.
+
+## How this LoRA evaluation compares with common practice
+
+| Common practice | Here |
+|---|---|
+| Settings fixed from convention, or tuned on validation, then the final number reported once on an untouched test set | Same. Settings fixed before any result; test scored once, at the very end |
+| 2 to 4 passes (epochs) for BERT-style fine-tuning | 2 passes over all 202,905 train notes |
+| A strong simple baseline alongside the fine-tune | Arm 1, TF-IDF + logistic regression |
+| Sweeps over rank and target modules (for example rank 4, 8, 16) | Narrower by design: one pre-declared fallback, rank 12, run only if the main run scores below 0.76 |
+| Results averaged over several random seeds (often 3 to 5), because fine-tuning outcomes vary with the seed | **One seed per configuration.** A known gap: the bootstrap measures how much the score moves with a different sample of patients, not how much it moves with a different training run. A second seed of the main run is a candidate for an optional slot |
+| Paired comparison of models on the same evaluation set | Paired bootstrap over patients: LoRA minus arm 1, with a 95% CI |
+| Long clinical notes: truncation compared against chunking or other input choices | Truncation at 512 tokens. About 41% of notes are longer, and the section order (HPI, then PMH) means PMH is cut first. One truncation follow-up is planned |
+
+## Run plan for the weekend of 2026-11-07
+
+Each LoRA run is about 6 hours of training (two passes) plus about 20 minutes of scoring. The
+GPU holds one run at a time (about 15 GB).
+
+| When | Run | Rule |
+|---|---|---|
+| Sat ~21:40 to ~03:50 | Main: rank 8, alpha 16, two passes | Always |
+| ~03:50 to ~10:15 | Fallback: rank 12, alpha 24 | Starts on its own only if main validation PR-AUC < 0.76 |
+| Sun 12:00 to 18:00 | Optional slot 1 | Chosen Sunday morning, before reading the main score |
+| Sun 21:00 to 03:00 | Optional slot 2 | Chosen Sunday |
+| Mon | GPU free | |
+
+Candidates for the optional slots: a truncation follow-up (PMH first, or head and tail), core vs
+broad label, or a second seed of the main run. Chunking does not fit a 6-hour slot at two passes.

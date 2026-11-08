@@ -210,7 +210,8 @@ so this is not evidence that ICD-10 itself codes more dementia. Reporting result
 - Arm 2: LoRA on `Bio_ClinicalBERT` via HuggingFace PEFT. `Clinical-Longformer` (4096 tokens) as
   fallback if truncation loses too much.
 - Arm 3: local instruct model, few-shot, via MLX or llama.cpp.
-- Compare all four arms in MLflow. Register the winner.
+- Compare all four arms in MLflow. Record the winner (not "register": that uploads the model,
+  which stays under `data/`).
 
 **STOP POINT.** If life intervenes here, four arms plus a temporal split plus a result is
 publishable. Everything after is upside.

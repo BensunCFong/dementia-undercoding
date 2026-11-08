@@ -91,3 +91,34 @@ def test_train_then_predict(tokenizer):
     assert logged and all(isinstance(v, int | float) for row in logged for v in row)
     assert logged[-1][:2] == (125, 125)              # 5 passes x 25 steps, counted across passes
     assert score(labels, probs)["pr_auc"] > 0.9      # the words give the answer away    
+
+
+
+@pytest.mark.parametrize(
+    "status, pr_auc, expect_fallback",
+    [("FINISHED", 0.70, True), ("FINISHED", 0.80, False), ("FAILED", 0.70, False)],
+)
+def test_fallback_rule(tmp_path, status, pr_auc, expect_fallback):
+    import mlflow
+    import yaml
+
+    from dementia_undercoding.arm2_lora import fallback_if_needed
+
+    db = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    config = {
+        "mlflow": {"tracking_uri": db, "experiment": "test"},
+        "lora": {"fallback_trigger": 0.76, "train": {"label": "dementia_core"}},
+    }
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+
+    mlflow.set_tracking_uri(db)
+    mlflow.set_experiment("test")
+    with mlflow.start_run(run_name="arm2-lora-main-dementia_core", tags={"smoke": "False"}) as r:
+        mlflow.log_metric("val_pr_auc", pr_auc)
+    mlflow.MlflowClient().set_terminated(r.info.run_id, status=status)
+
+    started = []
+    ran = fallback_if_needed(config_path, poll_seconds=0, start=lambda *a, **k: started.append(k))
+    assert ran == expect_fallback
+    assert started == ([{"variant": "fallback"}] if expect_fallback else [])

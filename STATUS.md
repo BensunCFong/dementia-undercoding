@@ -23,6 +23,11 @@ As of 2026-11-07: repo private on GitHub, 61 tests.
   dropout 0.1; 295,681 trainable weights (0.27%). Batch 16 at 512 tokens: 0.84 s per step,
   about 3 h per pass. fp16 gave no speed-up on this GPU, so training is full precision.
   Pre-declared fallback: rank 12, alpha 24, runs only if validation PR-AUC < 0.76.
+- **Token lengths** (Bio_ClinicalBERT tokenizer, test not counted): median 451 train / 460
+  validation; 40.9% / 42.6% of notes exceed 512 and are truncated. Baseline text runs HPI, then
+  PMH, then Social History, so truncation cuts PMH first, where dementia is most often listed.
+  Arm 1 reads full text; arm 2 the first 512 tokens. Follow-up to choose before reading arm 2:
+  PMH first, head and tail, or chunking.
 - **Per-note scores** saved under `data/derived/scores/` (hadm_id, score) for paired comparison.
 - **MLflow** moved to SQLite under `data/` (MLflow 3.x refuses the old file store).
 
@@ -40,8 +45,10 @@ As of 2026-11-07: repo private on GitHub, 61 tests.
 Stage 3, piece 3: a first LoRA run against a baseline, scored on validation only.
 
 1. Done: MPS check, validation split, minimal scorer, arm 1, LoRA set-up and timing.
-2. Running (started 2026-11-07 evening): arm 2 main run, all 202,905 train notes, two passes,
-   about 25,400 steps. Log in `data/derived/logs/arm2-main.log`.
+2. Running (started 2026-11-07 ~21:40): arm 2 main run, all 202,905 train notes, two passes,
+   about 25,400 steps, done ~03:50. Log in `data/derived/logs/arm2-main.log`. A watcher starts
+   the rank-12 fallback on its own if validation PR-AUC < 0.76 (done ~10:15). Full schedule and
+   optional slots in `docs/explainers.md` ("Run plan").
 3. Next: re-run arm 1 to save its per-note scores; bootstrap CIs, including a paired arm 1 vs
    arm 2 comparison; real token counts.
 

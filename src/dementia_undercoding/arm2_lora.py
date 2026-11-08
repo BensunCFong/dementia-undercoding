@@ -262,9 +262,57 @@ def run(
     return {"val": val_result, "train_sample": health_result, "fit_seconds": fit_seconds}
 
 
+def fallback_if_needed(
+    config_path: str | Path = "config/config.yaml",
+    poll_seconds: int = 60,
+    max_wait_hours: float = 10,
+    start: Callable[..., dict] | None = None,
+) -> bool:
+    """Wait for the latest full main run to end, then apply the pre-declared fallback rule.
+
+    Runs the fallback variant only if the main run FINISHED and its validation
+    PR-AUC is below lora.fallback_trigger. Reads metrics from MLflow; never
+    touches note text itself. Returns True if the fallback was started.
+    `start` is for tests; by default it is run().
+    """
+    cfg = load_config(config_path)
+    label, trigger = cfg["lora"]["train"]["label"], cfg["lora"]["fallback_trigger"]
+    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
+    query = f"tags.mlflow.runName = 'arm2-lora-main-{label}' and tags.smoke = 'False'"
+    deadline = time.time() + max_wait_hours * 3600
+
+    while True:
+        runs = mlflow.search_runs(
+            experiment_names=[cfg["mlflow"]["experiment"]], filter_string=query,
+            order_by=["attributes.start_time DESC"], max_results=1,
+        )
+        if len(runs) and runs.iloc[0]["status"] != "RUNNING":
+            break
+        if time.time() > deadline:
+            raise TimeoutError(f"main run still not finished after {max_wait_hours} h")
+        time.sleep(poll_seconds)
+
+    main = runs.iloc[0]
+    if main["status"] != "FINISHED":
+        print(f"main run ended with status {main['status']}; fallback not started", flush=True)
+        return False
+    pr_auc = float(main["metrics.val_pr_auc"])
+    if pr_auc >= trigger:
+        print(f"main validation PR-AUC {pr_auc:.3f} >= {trigger}; fallback not needed", flush=True)
+        return False
+    print(f"main validation PR-AUC {pr_auc:.3f} < {trigger}; starting the fallback", flush=True)
+    (start or run)(config_path, variant="fallback")
+    return True
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Arm 2: LoRA fine-tune of Bio_ClinicalBERT.")
     parser.add_argument("--variant", default="main", choices=["main", "fallback"])
     parser.add_argument("--smoke", action="store_true", help="800 train notes, 2,000 validation notes")
+    parser.add_argument("--fallback-if-needed", action="store_true",
+                        help="wait for the main run, then run the fallback only if the trigger says so")
     args = parser.parse_args()
-    run(variant=args.variant, smoke=args.smoke)
+    if args.fallback_if_needed:
+        fallback_if_needed()
+    else:
+        run(variant=args.variant, smoke=args.smoke)
