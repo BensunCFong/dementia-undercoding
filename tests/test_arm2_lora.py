@@ -71,7 +71,6 @@ def fake_notes(n=200, seed=0):
 
 
 def test_train_then_predict(tokenizer):
-    import numpy as np
     import torch
 
     from dementia_undercoding.arm2_lora import predict, train
@@ -81,13 +80,14 @@ def test_train_then_predict(tokenizer):
     torch.manual_seed(0)
     model = add_lora(tiny_bert(), LORA)
     logged = []
-    # Five copies of the notes: a tiny untrained BERT needs more than 25 steps.
-    train(model, tokenizer, texts * 5, np.tile(labels, 5), device="cpu", batch_size=8, learning_rate=1e-2,
-          warmup_frac=0.1, max_grad_norm=1.0, max_len=16, seed=0, log_every=5,
+    # Five passes: a tiny untrained BERT needs more than one pass of 25 steps.
+    train(model, tokenizer, texts, labels, device="cpu", batch_size=8, learning_rate=1e-2,
+          warmup_frac=0.1, max_grad_norm=1.0, max_len=16, seed=0, passes=5, log_every=5,
           log=lambda *args: logged.append(args))
     probs = predict(model, tokenizer, texts, device="cpu", max_len=16)
 
     assert probs.shape == (len(texts),)
     assert ((probs >= 0) & (probs <= 1)).all()
     assert logged and all(isinstance(v, int | float) for row in logged for v in row)
+    assert logged[-1][:2] == (125, 125)              # 5 passes x 25 steps, counted across passes
     assert score(labels, probs)["pr_auc"] > 0.9      # the words give the answer away    

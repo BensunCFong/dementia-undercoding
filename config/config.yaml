@@ -152,6 +152,7 @@ lora:
   train:
     label: "dementia_core"
     batch_size: 16
+    passes: 2
     learning_rate: 2.0e-4
     warmup_frac: 0.06               # first 6% of steps ramp the learning rate up from zero
     max_grad_norm: 1.0              # cap on any single nudge

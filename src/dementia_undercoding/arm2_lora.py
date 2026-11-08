@@ -119,17 +119,21 @@ def train(
     max_grad_norm: float,
     max_len: int,
     seed: int,
+    passes: int = 1,
     log_every: int = 100,
     log: Callable[[int, int, float, float], None] | None = None,
 ) -> None:
-    """One pass over the training notes, in a seeded random order.
+    """`passes` passes over the training notes, reshuffled at the start of each.
 
-    log(step, total_steps, mean_loss_since_last_log, elapsed_seconds) is called
-    every log_every steps and at the end. It only ever receives numbers.
+    The learning-rate schedule (warm-up, then a straight fall to zero) spans all
+    passes together. log(step, total_steps, mean_loss_since_last_log,
+    elapsed_seconds) is called every log_every steps and at the end. It only
+    ever receives numbers.
     """
     model.to(device).train()
-    order = np.random.default_rng(seed).permutation(len(texts))
-    total_steps = math.ceil(len(order) / batch_size)
+    rng = np.random.default_rng(seed)
+    steps_per_pass = math.ceil(len(texts) / batch_size)
+    total_steps = passes * steps_per_pass
 
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable, lr=learning_rate)
@@ -140,26 +144,30 @@ def train(
 
     running = torch.zeros((), device=device)
     since_log = 0
+    step = 0
     start = time.perf_counter()
-    for step in range(total_steps):
-        idx = order[step * batch_size:(step + 1) * batch_size]
-        batch = _encode(tokenizer, [texts[i] for i in idx], max_len, device)
-        y = torch.tensor(labels[idx], dtype=torch.float32, device=device).unsqueeze(1)
+    for _ in range(passes):
+        order = rng.permutation(len(texts))             # a fresh order each pass
+        for b in range(steps_per_pass):
+            idx = order[b * batch_size:(b + 1) * batch_size]
+            batch = _encode(tokenizer, [texts[i] for i in idx], max_len, device)
+            y = torch.tensor(labels[idx], dtype=torch.float32, device=device).unsqueeze(1)
 
-        logits = model(**batch).logits                  # 1. predict
-        loss = loss_fn(logits, y)                        # 2. measure the error
-        optimizer.zero_grad()
-        loss.backward()                                  # 3. gradients
-        torch.nn.utils.clip_grad_norm_(trainable, max_grad_norm)
-        optimizer.step()                                 # 4. nudge
-        scheduler.step()                                 # move the learning rate along its schedule
+            logits = model(**batch).logits              # 1. predict
+            loss = loss_fn(logits, y)                    # 2. measure the error
+            optimizer.zero_grad()
+            loss.backward()                              # 3. gradients
+            torch.nn.utils.clip_grad_norm_(trainable, max_grad_norm)
+            optimizer.step()                             # 4. nudge
+            scheduler.step()                             # move the learning rate along its schedule
 
-        running += loss.detach()
-        since_log += 1
-        if log is not None and ((step + 1) % log_every == 0 or step + 1 == total_steps):
-            log(step + 1, total_steps, (running / since_log).item(), time.perf_counter() - start)
-            running.zero_()
-            since_log = 0
+            step += 1
+            running += loss.detach()
+            since_log += 1
+            if log is not None and (step % log_every == 0 or step == total_steps):
+                log(step, total_steps, (running / since_log).item(), time.perf_counter() - start)
+                running.zero_()
+                since_log = 0
 
 
 @torch.no_grad()
@@ -225,7 +233,7 @@ def run(
             model, tokenizer, train_df["text"].tolist(), train_df[label].to_numpy(),
             device=device, batch_size=tcfg["batch_size"], learning_rate=tcfg["learning_rate"],
             warmup_frac=tcfg["warmup_frac"], max_grad_norm=tcfg["max_grad_norm"],
-            max_len=lcfg["max_len"], seed=seed, log=log,
+            max_len=lcfg["max_len"], seed=seed, passes=tcfg["passes"], log=log,
         )
         fit_seconds = time.perf_counter() - start
         if not smoke:                    # save before scoring, so a crash there loses no training
