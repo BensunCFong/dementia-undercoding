@@ -5,8 +5,13 @@ Skipped where torch / peft are not installed (CI installs only the core deps).
 
 import pytest
 
-pytest.importorskip("torch")
+torch = pytest.importorskip("torch")
 pytest.importorskip("peft")
+
+# One thread: pytest runs every test file in one process, and LightGBM's tests
+# load a second copy of OpenMP. Two copies both starting worker threads
+# deadlock on macOS. The real runs (no LightGBM in the process) are unaffected.
+torch.set_num_threads(1)
 
 from transformers import BertConfig, BertForSequenceClassification  # noqa: E402
 

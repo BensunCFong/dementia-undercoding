@@ -136,6 +136,18 @@ arm0:
   window: 6                 # NegEx-style scope: at most this many words between trigger and term
   uncertain_weight: 0.5     # "concern for dementia" counts half; a judgement call, not tuned
 
+
+arm1b:
+  # LightGBM on arm 1's TF-IDF features. Every setting fixed 2026-11-08, before any result.
+  inner_frac: 0.1           # slice of TRAIN patients used only for early stopping; validation never is
+  inner_seed: 20261108
+  max_trees: 2000
+  patience: 50              # stop when inner-slice PR-AUC has not improved for this many trees
+  learning_rate: 0.1        # LightGBM defaults from here down
+  num_leaves: 31
+  min_child_samples: 20
+  seed: 20261108
+
 lora:
   # Arm 2. Decided 2026-11-07, before any LoRA result was seen.
   model: "emilyalsentzer/Bio_ClinicalBERT"
