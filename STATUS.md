@@ -1,6 +1,6 @@
 # Project status
 
-As of 2026-11-08, evening: repo private on GitHub, 116 tests (106 + 1 skipped in CI, which
+As of 2026-11-08, evening: repo public on GitHub (MIT), 116 tests (106 + 1 skipped in CI, which
 installs only core packages).
 
 ## Results so far (validation only; test untouched)
@@ -130,8 +130,9 @@ Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 - Open decision: keep arm 3 (prompted local LLM) or prune it, on its own merits
 - Test set scored once, for every arm, after all choices are final
 
-## Before going public
+## Public since 2026-11-08
 
-- Scan tracked files for employer names or personal details
-- Recreate the GitHub repo so commits from before the 2026-11-06 history rewrite are gone from GitHub
-- Then make it public (the first paired comparison is done, 2026-11-08)
+- Tracked files and full history scanned (no data, secrets, personal paths or scrubbed terms;
+  every commit uses the GitHub noreply email).
+- GitHub repo deleted and recreated, so commits from before the 2026-11-06 history rewrite are
+  gone from GitHub; pushed fresh as public with an MIT license (code only, not MIMIC data).
