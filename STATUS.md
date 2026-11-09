@@ -134,9 +134,54 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
    general model; MedGemma weaker on every measure). Code-label PR-AUC is not evidence of judging
    skill; the judge is trusted only if it meets an agreement rule against 100 notes read blind by
    me, to be written before it judges anything.
-5. Next: Week 3 split, then cutoff, then how the two sets are reported and read (both, LoRA
-   only, LightGBM only), then the judge agreement rule; then `validator_rx.py` and the age-only
-   arm; `icd_version` and subgroups.
+5. **Week 3 split, decided 2026-11-09:** develop on validation, report on test. On validation:
+   the cutoff rule, the judge rubric and prompt (tried on a handful of gap-set notes) and the
+   judge agreement rule; nothing measured there is reported as the result. Then everything is
+   frozen and run once on test (2017-2019): both gap sets, the judge, my 100 blind reads and the
+   gap rate by subgroup. Any look at validation gap sets is description only, not an era result.
+   Needs a test-scoring path (LightGBM refit on train, LoRA from its saved adapter).
+6. **Week 3 cutoff, decided 2026-11-09:** no single line. Each arm's notes are ranked and cut
+   into depth bands measured in multiples of the split's coded count (validation 820; test about
+   4.7%), the same bands for both arms. The gap set in each band is its uncoded notes. Reported
+   per band: the share the judge confirms as documented impairment, and how much of that is
+   hidden (no explicit term). A random sample from below the last band is also judged, so the gap
+   rate becomes an estimate, not only a floor. My 100 blind reads are spread across the bands.
+   Band edges and sample size are fixed after timing the judge with its rubric on validation. The
+   drug validator plays no part in setting the bands. Reason: hidden cases likely score lower than
+   explicit ones, so a single line at the coded count would mostly miss them.
+7. **Week 3 reporting, decided 2026-11-09:** the judge reads each flagged note once (both arms
+   pooled). My 100 reads are blind to arm, band and judge verdict. One test only: at one depth
+   (fixed when the bands are set), LoRA-only vs LightGBM-only notes, share confirmed as hidden
+   dementia, patient-level bootstrap interval; the idea is supported only if the interval is
+   entirely above zero. The groups may be small, so a null is likely even if the idea is true,
+   and is reported as such. Everything else (yield per band, overlap counts) is a descriptive
+   table, no further tests; two or three bands at most. Any lens chosen after the results is
+   labelled so and reported as exploratory, never in place of this test.
+   LoRA main was trained once; a second seed was considered and declined on 2026-11-09, before
+   test. The bootstrap covers luck in which patients were drawn, not luck in training.
+8. **Judge rubric, decided 2026-11-09 before the judge has read any note:**
+   - Question: does the note document chronic baseline cognitive impairment (README target)?
+     The judge does not diagnose. "Hidden" stays defined by arm 0 (no explicit term in the
+     history sections), not by the judge.
+   - Verdicts: Documented / Possible (includes MCI) / Acute only / None. Primary gap rate uses
+     Documented; sensitivity version uses Documented + Possible; Acute only is counted as the
+     delirium check.
+   - Input: the whole discharge note, not only the history sections the arms read. The judge is
+     the reference standard, not another arm. My reads use the same text.
+   - Output: up to 3 sentences quoted word for word, then the verdict, in a fixed JSON shape
+     forced by llama.cpp. Code checks every quote is in the note (made-up quotes counted and
+     reported) and finds each quote's section, so confirmations from outside the history are
+     reported as such. Output saved under `data/` only. Thinking mode off.
+   - Agreement: Cohen's kappa, Documented vs the rest, judge against my blind reads; sensitivity,
+     specificity and the 4x4 table also reported. The judge is trusted if the point estimate is
+     at least 0.6; the interval is reported.
+   - If it fails on test: judge verdicts are not used, the gap rate comes from my 100 reads alone,
+     and the LoRA-vs-LightGBM test is reported as not run, with this rule as the reason.
+   - Pilot: about 30 validation gap-set notes read blind by me and by the judge, to adjust the
+     prompt before freezing. Development only, never reported as the result.
+9. Next: build the judge and time it on whole notes (validation); pilot reads; then band edges and
+   the random-sample size; test-scoring path; `validator_rx.py` and the age-only arm;
+   `icd_version` and subgroups.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
