@@ -7,12 +7,14 @@ Nothing here prints or logs note text. Anything that holds note text is saved un
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.error
 import urllib.request
 from collections import Counter
 from difflib import SequenceMatcher
+from multiprocessing import Pool
 from pathlib import Path
 
 import duckdb
@@ -20,6 +22,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import cohen_kappa_score
 
+from .arm0_regex import DIAGNOSIS, DRUGS, count_mentions
 from .arm3_llm import LlamaServer
 from .cohort import load_config
 from .splits import load_notes
@@ -337,6 +340,65 @@ def judge_notes(cfg: dict, texts: pd.DataFrame) -> pd.DataFrame:
                          "n_passages": len(note_passages),
                          "rejected": timings.get("rejected", False)})
     return pd.DataFrame(rows)
+
+
+# --- the arm 0 cross-check (STATUS item 12, decided 2026-11-09 before test was touched) ----
+
+
+def certain_mentions(note: str, window: int, pattern: re.Pattern = DIAGNOSIS) -> int:
+    """Certain arm 0 mentions in a note: not negated, not someone else's, not uncertain.
+
+    pattern: arm 0's diagnosis terms (the cross-check) or its drug terms (the drug-only count).
+    """
+    return count_mentions(note, pattern, window)["certain"]
+
+
+def _certain_one(args: tuple[str, int]) -> tuple[int, int]:
+    note, window = args
+    return certain_mentions(note, window), certain_mentions(note, window, DRUGS)
+
+
+def cross_check(judged: pd.DataFrame, texts: pd.DataFrame, window: int, max_chars: int) -> pd.DataFrame:
+    """Each judged note with its certain arm 0 mentions, and whether it is flagged.
+
+    judged: hadm_id, verdict (the judge's answers). texts: hadm_id, text (the whole notes).
+    Arm 0 reads the text the judge saw: the note cut at max_chars. Flagged = at least one
+    certain diagnosis mention and the judge did not say Documented (no valid answer counts
+    as not). Drug only = a certain drug mention, no certain diagnosis mention and not
+    Documented: counted, never read. Returns hadm_id, verdict, n_certain, n_certain_drug,
+    flagged, drug_only; no note text.
+    """
+    df = judged[["hadm_id", "verdict"]].merge(texts[["hadm_id", "text"]], on="hadm_id",
+                                              how="left", validate="one_to_one")
+    if df["text"].isna().any():
+        raise ValueError(f"{int(df['text'].isna().sum()):,} judged notes without text")
+    workers = max(1, (os.cpu_count() or 2) - 2)
+    with Pool(workers) as pool:
+        counts = pool.map(_certain_one, [(t[:max_chars], window) for t in df["text"]], chunksize=50)
+    df["n_certain"] = [dx for dx, _ in counts]
+    df["n_certain_drug"] = [rx for _, rx in counts]
+    not_documented = df["verdict"] != "Documented"
+    df["flagged"] = (df["n_certain"] > 0) & not_documented
+    df["drug_only"] = (df["n_certain"] == 0) & (df["n_certain_drug"] > 0) & not_documented
+    return df.drop(columns="text")
+
+
+def draw_cross_check_reads(checks: dict[str, pd.DataFrame], cap: int, seed: int) -> pd.DataFrame:
+    """The flagged notes I read: all of them, or a random `cap` from the combined list.
+
+    checks: set name -> cross_check() output, e.g. {"pool": ..., "sample": ...}. Returns
+    read_id, hadm_id, set in a random order (so the reading order hides the set). The
+    judge's verdict is left out, so the reads are blind to it.
+    """
+    flags = pd.concat([c.loc[c["flagged"], ["hadm_id"]].assign(set=name) for name, c in checks.items()])
+    if flags["hadm_id"].duplicated().any():
+        raise ValueError("a note is in more than one set")
+    flags = flags.sort_values("hadm_id").reset_index(drop=True)      # fixed order before the draw
+    rng = np.random.default_rng(seed)
+    n = min(cap, len(flags))
+    picked = flags.iloc[rng.choice(len(flags), size=n, replace=False)].reset_index(drop=True)
+    picked.insert(0, "read_id", [f"X{i + 1:02d}" for i in range(n)])
+    return picked
 
 
 # --- the timing run (validation, development only) --------------------------------------

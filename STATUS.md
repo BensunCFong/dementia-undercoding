@@ -239,10 +239,35 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
       stated.
     - Arm scoring on test is a separate step: about 1 h for arms 0, 1, 1b, 2 and age-only, plus
       about 29 h for arm 3 only if it qualifies under its test rule.
-12. Next: the arm 0 cross-check; test-scoring path (arms 1 and 1b refit on train, LoRA from its
-    saved adapters); `validator_rx.py` and the age-only arm; then the arm 3 decision from the
-    hidden row; `icd_version` and subgroups.
-
+12. **Arm 0 cross-check, decided 2026-11-09 before test was touched** (the check promised in
+    item 10):
+    - Arm 0's frozen rules (2026-11-07: terms, negation, window) run on the text the judge saw:
+      the whole discharge note, cut at the judge's 60,000 characters. Not the history sections
+      arm 0 was scored on, so that a mention outside them, seen by the judge, is still checked.
+    - A note is flagged when it has at least one certain mention (not negated, not someone else,
+      not uncertain) and the judge did not say Documented. Uncertain-only mentions ("concern
+      for dementia") are not flagged: they fit Possible.
+    - Run on both judged sets: the 4x pool and the random 1,000 below 4x. Counts reported per
+      set.
+    - I read the flagged notes, blind to the judge's verdict: all of them, or a random 50 (fixed
+      seed) from the combined list if there are more. Each read is tagged with its set and
+      reported as it falls, separate from the 60 agreement reads and the sample's Documented
+      reads.
+    - A flag never changes a judge verdict; the gap rate stays the judge's. The reads measure
+      how often the judge misses a plainly stated dementia.
+    - Limit: these reads are not fully blind, since every flagged note is one the judge did not
+      call Documented. They check the judge's misses; the 60 agreement reads remain the blind
+      measure.
+    - Diagnosis terms only, for the flags and the reads. A note can be Documented through a drug
+      name alone (pilot P06, home Aricept), which this check cannot see. So a count is added,
+      per set and never read: notes with a certain mention of one of arm 0's drug names, no
+      certain diagnosis mention, and no Documented verdict. It sizes how far the reads may
+      understate the judge's misses, and it never changes a verdict.
+13. Next: test-scoring path (arms 1 and 1b refit on train, LoRA from its saved adapters);
+    `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
+    `icd_version` and subgroups. The cross-check's command (run on the judge's test answers,
+    the reads draw) is wired in with the test judge run.
+    
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 ## Next

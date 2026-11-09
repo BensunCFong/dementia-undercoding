@@ -13,7 +13,10 @@ import pytest
 from dementia_undercoding.judge import (
     VERDICTS,
     ask,
+    certain_mentions,
     check_evidence,
+    cross_check,
+    draw_cross_check_reads,
     flagged,
     judge_messages,
     judge_schema,
@@ -220,3 +223,90 @@ def test_read_pilot_reads_normalises_and_checks(tmp_path):
     path.write_text("pilot_id,verdict,comment\nP01,Documented,\nP02,,\nP03,maybe,\n")
     with pytest.raises(ValueError, match="P02, P03"):
         read_pilot_reads(path)
+
+# --- the arm 0 cross-check (invented sentences) ------------------------------------------
+
+
+@pytest.mark.parametrize("note, expected", [
+    ("Past Medical History: dementia, hypertension.", 1),
+    ("Alzheimer's disease. Baseline dementia per daughter.", 2),
+    ("No history of dementia.", 0),
+    ("Mother had dementia.", 0),
+    ("Concern for dementia given recent forgetfulness.", 0),
+    ("Hypertension, atrial fibrillation.", 0),
+])
+def test_certain_mentions(note, expected):
+    assert certain_mentions(note, window=6) == expected
+
+
+def test_cross_check_flags_certain_mention_without_documented():
+    judged = pd.DataFrame({"hadm_id": [1, 2, 3, 4, 5],
+                           "verdict": ["Possible", "Documented", "None", None, "Acute only"]})
+    texts = pd.DataFrame({"hadm_id": [5, 4, 3, 2, 1], "text": [
+        "Concern for dementia.",                  # 5: uncertain only, not flagged
+        "PMH: dementia.",                          # 4: no valid answer counts as not Documented
+        "PMH: hypertension.",                      # 3: no mention
+        "PMH: dementia.",                          # 2: the judge said Documented
+        "PMH: dementia.",                          # 1: flagged
+    ]})
+    out = cross_check(judged, texts, window=6, max_chars=1000)
+    assert list(out.columns) == ["hadm_id", "verdict", "n_certain", "n_certain_drug", "flagged", "drug_only"]
+    assert out.set_index("hadm_id")["flagged"].to_dict() == {1: True, 2: False, 3: False, 4: True, 5: False}
+
+
+def test_cross_check_counts_drug_only_notes_but_never_flags_them():
+    judged = pd.DataFrame({"hadm_id": [1, 2, 3, 4, 5],
+                           "verdict": ["None", "Documented", "Possible", "None", "None"]})
+    texts = pd.DataFrame({"hadm_id": [1, 2, 3, 4, 5], "text": [
+        "Home medications: Aricept 10 mg daily.",  # 1: drug only, counted
+        "Home medications: donepezil.",            # 2: the judge said Documented
+        "PMH: dementia. Meds: memantine.",         # 3: a diagnosis mention: flagged, not drug only
+        "Not on donepezil.",                       # 4: negated drug mention
+        "Meds: lisinopril.",                       # 5: no mention
+    ]})
+    out = cross_check(judged, texts, window=6, max_chars=1000).set_index("hadm_id")
+    assert out["drug_only"].to_dict() == {1: True, 2: False, 3: False, 4: False, 5: False}
+    assert out["flagged"].to_dict() == {1: False, 2: False, 3: True, 4: False, 5: False}
+
+    
+def test_cross_check_reads_only_what_the_judge_saw():
+    judged = pd.DataFrame({"hadm_id": [1], "verdict": ["None"]})
+    texts = pd.DataFrame({"hadm_id": [1], "text": ["x" * 50 + " PMH: dementia."]})
+    assert not cross_check(judged, texts, window=6, max_chars=50)["flagged"].iloc[0]
+    assert cross_check(judged, texts, window=6, max_chars=100)["flagged"].iloc[0]
+
+
+def test_cross_check_fails_on_missing_text():
+    judged = pd.DataFrame({"hadm_id": [1, 2], "verdict": ["None", "None"]})
+    texts = pd.DataFrame({"hadm_id": [1], "text": ["PMH: dementia."]})
+    with pytest.raises(ValueError, match="without text"):
+        cross_check(judged, texts, window=6, max_chars=100)
+
+
+def _checks(pool_ids, sample_ids):
+    def one(ids):
+        return pd.DataFrame({"hadm_id": ids, "flagged": [True] * len(ids)})
+    return {"pool": one(pool_ids), "sample": one(sample_ids)}
+
+
+def test_draw_takes_all_when_under_the_cap():
+    reads = draw_cross_check_reads(_checks([3, 1], [2]), cap=50, seed=12)
+    assert list(reads.columns) == ["read_id", "hadm_id", "set"]
+    assert sorted(reads["hadm_id"]) == [1, 2, 3]
+    assert list(reads["read_id"]) == ["X01", "X02", "X03"]
+    assert reads.set_index("hadm_id")["set"].to_dict() == {1: "pool", 2: "sample", 3: "pool"}
+
+
+def test_draw_caps_and_repeats_with_the_seed():
+    checks = _checks(list(range(100)), list(range(100, 130)))
+    first = draw_cross_check_reads(checks, cap=50, seed=12)
+    assert len(first) == 50 and first["hadm_id"].is_unique
+    assert first.equals(draw_cross_check_reads(checks, cap=50, seed=12))
+
+
+def test_draw_skips_unflagged_and_rejects_overlap():
+    checks = {"pool": pd.DataFrame({"hadm_id": [1, 2], "flagged": [True, False]}),
+              "sample": pd.DataFrame({"hadm_id": [3], "flagged": [True]})}
+    assert sorted(draw_cross_check_reads(checks, cap=50, seed=12)["hadm_id"]) == [1, 3]
+    with pytest.raises(ValueError, match="more than one set"):
+        draw_cross_check_reads(_checks([1], [1]), cap=50, seed=12)

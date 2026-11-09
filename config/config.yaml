@@ -197,3 +197,6 @@ judge:
     n_per_stratum: 15          # 30 notes: 15 from the top 2x pool, 15 from 2x-4x
     depths: [2, 4]             # provisional, like the timing run's
     seed: 31                   # any fixed number; not the timing run's    
+  cross_check:                 # arm 0 cross-check, STATUS item 12 (decided 2026-11-09, before test)
+    cap: 50                    # flagged notes I read at most; a random draw above that
+    seed: 21                   # any fixed number, set before test was touched
