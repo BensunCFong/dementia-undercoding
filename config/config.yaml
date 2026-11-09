@@ -193,3 +193,7 @@ judge:
     n: 50                      # validation notes judged, a fixed random draw
     depth: 2                   # provisional gap set: top 2x coded count, either arm
     seed: 20261109
+  pilot:
+    n_per_stratum: 15          # 30 notes: 15 from the top 2x pool, 15 from 2x-4x
+    depths: [2, 4]             # provisional, like the timing run's
+    seed: 31                   # any fixed number; not the timing run's    

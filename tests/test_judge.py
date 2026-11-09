@@ -19,6 +19,7 @@ from dementia_undercoding.judge import (
     judge_schema,
     locate,
     passages,
+    read_pilot_reads,
     whole_notes,
 )
 
@@ -210,3 +211,12 @@ def test_capitals_format_uses_fallback_headings():
     assert out["sections"] == ["History of Present Illness", "HOSPITAL COURSE"]
     assert out["in_history"]
 
+
+
+def test_read_pilot_reads_normalises_and_checks(tmp_path):
+    path = tmp_path / "reads.csv"
+    path.write_text("pilot_id,verdict,comment\nP01, documented ,\nP02,Acute only,odd one\nP03,NONE,\n")
+    assert read_pilot_reads(path)["mine"].tolist() == ["Documented", "Acute only", "None"]
+    path.write_text("pilot_id,verdict,comment\nP01,Documented,\nP02,,\nP03,maybe,\n")
+    with pytest.raises(ValueError, match="P02, P03"):
+        read_pilot_reads(path)

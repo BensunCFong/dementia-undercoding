@@ -18,6 +18,7 @@ from pathlib import Path
 import duckdb
 import numpy as np
 import pandas as pd
+from sklearn.metrics import cohen_kappa_score
 
 from .arm3_llm import LlamaServer
 from .cohort import load_config
@@ -274,7 +275,8 @@ def check_evidence(note: str, evidence: list[str]) -> dict:
 
 
 
-# --- the timing run (validation, development only) --------------------------------------
+# --- gap sets and judging a set of notes ---------------------------------------------------
+
 
 def flagged(val: pd.DataFrame, score: np.ndarray, label: str, depth: float) -> pd.Series:
     """hadm_ids of the uncoded notes among an arm's top (depth x coded count) notes.
@@ -286,30 +288,27 @@ def flagged(val: pd.DataFrame, score: np.ndarray, label: str, depth: float) -> p
     return top.loc[top[label] == 0, "hadm_id"]
 
 
-def run_timing(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> pd.DataFrame:
-    """The judge on a fixed random sample of validation gap-set notes. Prints counts only.
+def validation_set(config_path: str | Path, label: str) -> pd.DataFrame:
+    """Validation notes, labels only (no text), sorted by hadm_id."""
+    notes = load_notes(config_path, columns=[label])
+    return notes[notes["split"] == "validation"].sort_values("hadm_id").reset_index(drop=True)
 
-    The gap set here is provisional (both arms, one depth from config) because the bands
-    are not fixed yet; this run measures speed and checks the machinery, nothing more.
-    Per-note results, quotes included, are saved under data/ only.
-    """
-    cfg = load_config(config_path)
-    jcfg, tcfg = cfg["judge"], cfg["judge"]["timing"]
 
-    notes = load_notes(config_path, columns=[label])                     # no text column read
-    val = notes[notes["split"] == "validation"].sort_values("hadm_id").reset_index(drop=True)
+def gap_pool(cfg: dict, val: pd.DataFrame, label: str, depth: float) -> set[int]:
+    """Uncoded notes in either gap-set arm's top (depth x coded count): each note once."""
     pool: set[int] = set()
-    for stem in jcfg["arms"].values():
+    for stem in cfg["judge"]["arms"].values():
         s = pd.read_parquet(Path(cfg["paths"]["scores"]) / f"{stem}-{label}.parquet")
         score = val[["hadm_id"]].merge(s, on="hadm_id", how="left", validate="one_to_one")["score"]
         if score.isna().any():
             raise ValueError(f"{stem}: {int(score.isna().sum()):,} validation notes without a score")
-        pool |= set(flagged(val, score.to_numpy(), label, tcfg["depth"]).tolist())
+        pool |= set(flagged(val, score.to_numpy(), label, depth).tolist())
+    return pool
 
-    rng = np.random.default_rng(tcfg["seed"])
-    ids = sorted(rng.choice(sorted(pool), size=min(tcfg["n"], len(pool)), replace=False).tolist())
-    texts = load_whole_notes(ids, config_path)
 
+def judge_notes(cfg: dict, texts: pd.DataFrame) -> pd.DataFrame:
+    """The judge on each note (columns hadm_id, text), one at a time. One row per note."""
+    jcfg = cfg["judge"]
     rows = []
     model_path = cfg["arm3"]["models"][jcfg["model"]]["path"]
     with LlamaServer(model_path, port=jcfg["port"], ctx=jcfg["ctx"]) as server:
@@ -327,7 +326,26 @@ def run_timing(config_path: str | Path = "config/config.yaml", label: str = "dem
                          "seconds": seconds, "chars": len(note), "cut": cut,
                          "n_passages": len(note_passages),
                          "rejected": timings.get("rejected", False)})
-    out = pd.DataFrame(rows)
+    return pd.DataFrame(rows)
+
+
+# --- the timing run (validation, development only) --------------------------------------
+
+
+def run_timing(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> pd.DataFrame:
+    """The judge on a fixed random sample of validation gap-set notes. Prints counts only.
+
+    The gap set here is provisional (both arms, one depth from config) because the bands
+    are not fixed yet; this run measures speed and checks the machinery, nothing more.
+    Per-note results, quotes included, are saved under data/ only.
+    """
+    cfg = load_config(config_path)
+    jcfg, tcfg = cfg["judge"], cfg["judge"]["timing"]
+    pool = gap_pool(cfg, validation_set(config_path, label), label, tcfg["depth"])
+
+    rng = np.random.default_rng(tcfg["seed"])
+    ids = sorted(rng.choice(sorted(pool), size=min(tcfg["n"], len(pool)), replace=False).tolist())
+    out = judge_notes(cfg, load_whole_notes(ids, config_path))
     path = Path(cfg["paths"]["judge"]) / f"timing-validation-{label}.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(path, index=False)
@@ -347,6 +365,104 @@ def run_timing(config_path: str | Path = "config/config.yaml", label: str = "dem
           f"refused as too long for the context: {int(out['rejected'].sum()):,}; "
           f"longest note {int(out['chars'].max()):,} characters")
     return out
+
+
+# --- the pilot (validation, development only) ---------------------------------------------
+# Draw: notes from two depths, timing-run notes left out (seen with a verdict, so not blind).
+# I read pilot-notes.txt and fill in pilot-reads.csv before looking at anything else; the
+# judge's answers go to a separate file; compare prints counts only.
+
+
+def pilot_dir(cfg: dict) -> Path:
+    return Path(cfg["paths"]["judge"]) / "pilot"
+
+
+def run_pilot_draw(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> None:
+    """Draw the pilot notes and write the reading file and the blank reads sheet."""
+    cfg = load_config(config_path)
+    jcfg, pcfg = cfg["judge"], cfg["judge"]["pilot"]
+    pdir = pilot_dir(cfg)
+    reads = pdir / "pilot-reads.csv"
+    if reads.exists():
+        raise FileExistsError(f"{reads} exists: the pilot is already drawn. Delete it on purpose to redraw.")
+
+    val = validation_set(config_path, label)
+    seen = set(pd.read_parquet(Path(cfg["paths"]["judge"]) / f"timing-validation-{label}.parquet")["hadm_id"])
+    shallow_depth, deep_depth = pcfg["depths"]
+    shallow_all = gap_pool(cfg, val, label, shallow_depth)
+    shallow = sorted(shallow_all - seen)
+    deep = sorted(gap_pool(cfg, val, label, deep_depth) - shallow_all - seen)
+
+    rng = np.random.default_rng(pcfg["seed"])
+    k = pcfg["n_per_stratum"]
+    picked = ([(h, f"top {shallow_depth}x") for h in rng.choice(shallow, k, replace=False)]
+              + [(h, f"{shallow_depth}x-{deep_depth}x") for h in rng.choice(deep, k, replace=False)])
+    order = rng.permutation(len(picked))                    # reading order hides the depth
+    key = pd.DataFrame([{"pilot_id": f"P{i + 1:02d}", "hadm_id": int(picked[j][0]), "stratum": picked[j][1]}
+                        for i, j in enumerate(order)])
+
+    texts = load_whole_notes(key["hadm_id"].tolist(), config_path).set_index("hadm_id")["text"]
+    pdir.mkdir(parents=True, exist_ok=True)
+    key.to_parquet(pdir / "pilot-key.parquet", index=False)
+    with open(pdir / "pilot-notes.txt", "w") as f:
+        for r in key.itertuples():
+            note = texts[r.hadm_id][: jcfg["max_note_chars"]]
+            f.write(f"{'=' * 70}\n{r.pilot_id}\n{'=' * 70}\n\n{note}\n\n")
+    key[["pilot_id"]].assign(verdict="", comment="").to_csv(reads, index=False)
+
+    print(f"pilot: {k} notes from the top {shallow_depth}x pool ({len(shallow):,} left after taking out "
+          f"the timing run's notes) and {k} from {shallow_depth}x-{deep_depth}x ({len(deep):,})")
+    print(f"read:  {pdir / 'pilot-notes.txt'}")
+    print(f"fill:  {reads}  (verdict: {', '.join(VERDICTS)})")
+
+
+def run_pilot_judge(config_path: str | Path = "config/config.yaml") -> None:
+    """The judge on the pilot notes. Prints timing only, so it can run while I read."""
+    cfg = load_config(config_path)
+    pdir = pilot_dir(cfg)
+    key = pd.read_parquet(pdir / "pilot-key.parquet")
+    out = judge_notes(cfg, load_whole_notes(key["hadm_id"].tolist(), config_path))
+    out.to_parquet(pdir / "pilot-judge.parquet", index=False)
+    print(f"judged {len(out):,} pilot notes, {out['seconds'].median():.1f} s median; "
+          f"answers saved, not shown")
+
+
+def read_pilot_reads(path: str | Path) -> pd.DataFrame:
+    """pilot_id and my verdict, spelled as in VERDICTS. Fails on any blank or unknown verdict."""
+    reads = pd.read_csv(path, dtype=str, keep_default_na=False)
+    canon = {v.lower(): v for v in VERDICTS}
+    mine = reads["verdict"].str.strip().str.lower().map(canon)
+    if mine.isna().any():
+        bad = ", ".join(reads.loc[mine.isna(), "pilot_id"])
+        raise ValueError(f"no valid verdict ({', '.join(VERDICTS)}) for: {bad}")
+    return pd.DataFrame({"pilot_id": reads["pilot_id"], "mine": mine})
+
+
+def run_pilot_compare(config_path: str | Path = "config/config.yaml") -> pd.DataFrame:
+    """My reads against the judge. Prints counts only. Development: not the reported agreement."""
+    cfg = load_config(config_path)
+    pdir = pilot_dir(cfg)
+    key = pd.read_parquet(pdir / "pilot-key.parquet")
+    judge = pd.read_parquet(pdir / "pilot-judge.parquet")[["hadm_id", "verdict"]]
+    df = (key.merge(read_pilot_reads(pdir / "pilot-reads.csv"), on="pilot_id", validate="one_to_one")
+             .merge(judge.rename(columns={"verdict": "judge"}), on="hadm_id", validate="one_to_one"))
+    df["judge"] = df["judge"].fillna("(no answer)")
+
+    cols = [*VERDICTS, *(["(no answer)"] if (df["judge"] == "(no answer)").any() else [])]
+    table = pd.crosstab(df["mine"], df["judge"]).reindex(index=list(VERDICTS), columns=cols, fill_value=0)
+    me_doc, judge_doc = df["mine"] == "Documented", df["judge"] == "Documented"
+    print(f"pilot: {len(df):,} notes; rows = my read, columns = the judge\n")
+    print(table.to_string(), "\n")
+    print(f"same verdict: {int((df['mine'] == df['judge']).sum()):,} of {len(df):,}; "
+          f"kappa, all four verdicts: {cohen_kappa_score(df['mine'], df['judge']):.2f}")
+    print(f"Documented vs the rest: kappa {cohen_kappa_score(me_doc, judge_doc):.2f}; the judge found "
+          f"{int((me_doc & judge_doc).sum())} of my {int(me_doc.sum())} Documented and called "
+          f"{int((~me_doc & judge_doc).sum())} of my {int((~me_doc).sum())} others Documented")
+    for stratum, part in df.groupby("stratum"):
+        print(f"  {stratum}: same verdict {int((part['mine'] == part['judge']).sum())} of {len(part)}")
+    print(f"Possible: {int((df['mine'] == 'Possible').sum())} by me, "
+          f"{int((df['judge'] == 'Possible').sum())} by the judge")
+    return df
 
 # --- re-checking saved answers (counts only) -------------------------------------------
 
@@ -384,13 +500,13 @@ def run_recheck(config_path: str | Path = "config/config.yaml", label: str = "de
 if __name__ == "__main__":
     import argparse
 
+    commands = {
+        "timing": run_timing,
+        "recheck": run_recheck,
+        "pilot-draw": run_pilot_draw,
+        "pilot-judge": run_pilot_judge,
+        "pilot-compare": run_pilot_compare,
+    }
     parser = argparse.ArgumentParser(description="The LLM judge (Week 3).")
-    parser.add_argument("--timing", action="store_true", help="timing run on validation gap-set notes")
-    parser.add_argument("--recheck", action="store_true", help="re-check the timing run's quotes (counts)")
-    args = parser.parse_args()
-    if args.timing:
-        run_timing()
-    elif args.recheck:
-        run_recheck()
-    else:
-        parser.print_help()
+    parser.add_argument("command", choices=list(commands), help="which step to run")
+    commands[parser.parse_args().command]()
