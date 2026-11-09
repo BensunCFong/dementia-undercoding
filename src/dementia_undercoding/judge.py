@@ -79,12 +79,13 @@ JUDGE_SYSTEM = (
     "- Possible: the note raises a cognitive concern, but it is unclear whether it predates this "
     "admission or how severe it is. Mild cognitive impairment goes here. If the note suggests a "
     "cognitive problem may have been present before this admission, use Possible, not Acute only.\n"
-    "- Acute only: the only cognitive problem is acute, during this admission, and the note treats "
-    "the confusion itself as a problem: it names delirium or encephalopathy, or describes an "
-    "assessment or treatment aimed at the confusion (not only at the illness causing it). Baseline "
-    "cognition is described as normal or not described.\n"
+    "- Acute only: the note describes an acute cognitive problem during this admission and treats "
+    "it as a problem: it names delirium or encephalopathy, or describes an assessment or treatment "
+    "aimed at the confusion (not only at the illness causing it). There must be such a problem; "
+    "and there is no sign of impairment before this admission.\n"
     "- None: no cognitive impairment is documented, or it is denied, ruled out, or describes "
-    "someone other than the patient. Words such as \"confused\", \"lethargic\" or \"altered\" in "
+    "someone other than the patient. Normal cognition (alert, oriented, clear and coherent) with "
+    "no cognitive problem is None. Words such as \"confused\", \"lethargic\" or \"altered\" in "
     "passing, in a very sick patient whose note does not treat the confusion itself as a problem, "
     "are None, not Acute only.\n\n"
     "First give up to three passages from the note that your verdict rests on. Each passage is one "
@@ -137,7 +138,8 @@ def passages(note: str) -> list[str]:
 def judge_schema(note_passages: list[str]) -> dict:
     """The answer shape for one note: up to 3 of its passages, then one of the four verdicts."""
     if note_passages:
-        evidence = {"type": "array", "items": {"type": "string", "enum": note_passages}, "maxItems": 3}
+        evidence = {"type": "array", "items": {"type": "string", "enum": note_passages}, "maxItems": 3,
+                    "uniqueItems": True}
     else:
         evidence = {"type": "array", "maxItems": 0}
     return {
