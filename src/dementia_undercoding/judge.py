@@ -69,19 +69,24 @@ JUDGE_SYSTEM = (
     "You check a hospital discharge summary for one thing: does it document that the patient had "
     "chronic cognitive impairment before this admission, such as dementia of any type or a "
     "long-standing decline in memory or thinking? You do not diagnose. You decide only what the "
-    "note documents, using the whole note.\n\n"
+    "note documents, using the whole note. Only the patient's own cognition counts: dementia or "
+    "memory problems in a spouse, parent or anyone else is never evidence about the patient.\n\n"
     "Verdicts:\n"
     "- Documented: the note states dementia (any type, including Alzheimer's disease) or clearly "
     "describes cognitive impairment that predates this admission, for example memory loss over "
     "months or years reported by family, or needing help with daily activities because of memory "
     "or thinking.\n"
     "- Possible: the note raises a cognitive concern, but it is unclear whether it predates this "
-    "admission or how severe it is. Mild cognitive impairment goes here.\n"
-    "- Acute only: the only cognitive problem described is acute, during this admission (delirium, "
-    "encephalopathy, intoxication, sedation), and baseline cognition is described as normal or "
-    "not described.\n"
+    "admission or how severe it is. Mild cognitive impairment goes here. If the note suggests a "
+    "cognitive problem may have been present before this admission, use Possible, not Acute only.\n"
+    "- Acute only: the only cognitive problem is acute, during this admission, and the note treats "
+    "the confusion itself as a problem: it names delirium or encephalopathy, or describes an "
+    "assessment or treatment aimed at the confusion (not only at the illness causing it). Baseline "
+    "cognition is described as normal or not described.\n"
     "- None: no cognitive impairment is documented, or it is denied, ruled out, or describes "
-    "someone other than the patient.\n\n"
+    "someone other than the patient. Words such as \"confused\", \"lethargic\" or \"altered\" in "
+    "passing, in a very sick patient whose note does not treat the confusion itself as a problem, "
+    "are None, not Acute only.\n\n"
     "First give up to three passages from the note that your verdict rests on. Each passage is one "
     "sentence or one list line, exactly as it appears in the note. For None, give passages only if "
     "the note denies impairment or describes it in someone else. Then give the verdict."
@@ -438,13 +443,19 @@ def read_pilot_reads(path: str | Path) -> pd.DataFrame:
     return pd.DataFrame({"pilot_id": reads["pilot_id"], "mine": mine})
 
 
-def run_pilot_compare(config_path: str | Path = "config/config.yaml") -> pd.DataFrame:
-    """My reads against the judge. Prints counts only. Development: not the reported agreement."""
+def run_pilot_compare(config_path: str | Path = "config/config.yaml", reads: str = "pilot-reads.csv",
+                      answers: str = "pilot-judge.parquet") -> pd.DataFrame:
+    """My reads against the judge. Prints counts only. Development: not the reported agreement.
+
+    reads and answers are file names in the pilot folder, so one judge run can be compared
+    with my original and my revised reads, and two judge runs with the same reads.
+    """
     cfg = load_config(config_path)
     pdir = pilot_dir(cfg)
     key = pd.read_parquet(pdir / "pilot-key.parquet")
-    judge = pd.read_parquet(pdir / "pilot-judge.parquet")[["hadm_id", "verdict"]]
-    df = (key.merge(read_pilot_reads(pdir / "pilot-reads.csv"), on="pilot_id", validate="one_to_one")
+    judge = pd.read_parquet(pdir / answers)[["hadm_id", "verdict"]]
+    print(f"reads: {reads}; judge answers: {answers}")
+    df = (key.merge(read_pilot_reads(pdir / reads), on="pilot_id", validate="one_to_one")
              .merge(judge.rename(columns={"verdict": "judge"}), on="hadm_id", validate="one_to_one"))
     df["judge"] = df["judge"].fillna("(no answer)")
 
@@ -509,4 +520,10 @@ if __name__ == "__main__":
     }
     parser = argparse.ArgumentParser(description="The LLM judge (Week 3).")
     parser.add_argument("command", choices=list(commands), help="which step to run")
-    commands[parser.parse_args().command]()
+    parser.add_argument("--reads", default="pilot-reads.csv", help="pilot-compare: my reads file")
+    parser.add_argument("--answers", default="pilot-judge.parquet", help="pilot-compare: judge answers file")
+    args = parser.parse_args()
+    if args.command == "pilot-compare":
+        run_pilot_compare(reads=args.reads, answers=args.answers)
+    else:
+        commands[args.command]()
