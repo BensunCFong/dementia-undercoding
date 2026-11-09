@@ -283,6 +283,9 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
       35 / 15 / 10 by band, random within band, shuffled, no topping up if a band is short.
       The judge works through a shuffled order, saves every 25 notes, resumes after a stop and
       prints progress only. Seeds fixed in config before test was touched.
+    - 2026-11-09: test opened (2117c67). The first scoring run was stopped by hand after arm 0, to
+      move it to another window; arm 0's test files were deleted and the loop restarted. Arm 0 is
+      a fixed regex (same scores on rerun) and no metric was computed or seen.      
 14. Next:
     `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
     `icd_version` and subgroups. The cross-check's command (run on the judge's test answers,
