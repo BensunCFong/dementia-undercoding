@@ -277,6 +277,12 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
     - Route to the judge: STATUS item 2 already allows scoring arms 0, 1, 1b and both LoRA runs on
       test now. The rest of this list is CPU work on validation and is done while the judge runs;
       the judge's test run prints no verdicts, and no test result is looked at until then.
+    - Test judge run (`judge.py test-draw`, `test-judge`): bands per arm at 1x / 2x / 4x of the
+      test coded count; a note the two arms place differently takes the shallower band (decided
+      2026-11-09). Random 1,000 from uncoded notes inside neither arm's 4x. My 60 reads drawn
+      35 / 15 / 10 by band, random within band, shuffled, no topping up if a band is short.
+      The judge works through a shuffled order, saves every 25 notes, resumes after a stop and
+      prints progress only. Seeds fixed in config before test was touched.
 14. Next:
     `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
     `icd_version` and subgroups. The cross-check's command (run on the judge's test answers,

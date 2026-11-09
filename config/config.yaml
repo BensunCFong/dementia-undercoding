@@ -184,7 +184,7 @@ test_scoring:
   # commit, when test is opened: that commit records when test was first scored.
   allowed: false
   reproduce_tol: 1.0e-5          # largest allowed gap between re-scored and saved validation scores
-  
+
 judge:
   # LLM judge for Week 3 (judge.py). Rubric in STATUS.md, decided 2026-11-09 before the judge read any note.
   model: "qwen3.5-9b"          # model path taken from arm3.models
@@ -203,6 +203,15 @@ judge:
     n_per_stratum: 15          # 30 notes: 15 from the top 2x pool, 15 from 2x-4x
     depths: [2, 4]             # provisional, like the timing run's
     seed: 31                   # any fixed number; not the timing run's    
+  test:                        # the test run, STATUS item 11 (decided 2026-11-09, before test)
+    depths: [1, 2, 4]          # bands 1x / 1-2x / 2-4x of the test coded count, both arms
+    sample_n: 1000             # uncoded notes judged from below 4x (neither arm inside 4x)
+    sample_seed: 41            # seeds: any fixed numbers, set before test was touched
+    reads: {"1x": 35, "1-2x": 15, "2-4x": 10}   # my blind reads per band (the shallower band)
+    reads_seed: 59
+    order_seed: 73             # judging order is shuffled, so a stop leaves a fair mix
+    save_every: 25             # notes per saved part file
+    seconds_per_note: 12.7     # from the validation timing run; for the estimate only
   cross_check:                 # arm 0 cross-check, STATUS item 12 (decided 2026-11-09, before test)
     cap: 50                    # flagged notes I read at most; a random draw above that
     seed: 21                   # any fixed number, set before test was touched

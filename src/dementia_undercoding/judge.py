@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter
+from collections.abc import Iterator
 from difflib import SequenceMatcher
 from multiprocessing import Pool
 from pathlib import Path
@@ -319,8 +320,13 @@ def gap_pool(cfg: dict, val: pd.DataFrame, label: str, depth: float) -> set[int]
 
 def judge_notes(cfg: dict, texts: pd.DataFrame) -> pd.DataFrame:
     """The judge on each note (columns hadm_id, text), one at a time. One row per note."""
+    return pd.DataFrame(list(judge_rows(cfg, texts)))
+
+
+def judge_rows(cfg: dict, texts: pd.DataFrame) -> Iterator[dict]:
+    """The judge on each note (columns hadm_id, text), one at a time: yields one row per note
+    as soon as it is judged, so a long run can save as it goes. One server for the whole run."""
     jcfg = cfg["judge"]
-    rows = []
     model_path = cfg["arm3"]["models"][jcfg["model"]]["path"]
     with LlamaServer(model_path, port=jcfg["port"], ctx=jcfg["ctx"]) as server:
         for hadm_id, note in zip(texts["hadm_id"], texts["text"], strict=True):
@@ -333,14 +339,12 @@ def judge_notes(cfg: dict, texts: pd.DataFrame) -> pd.DataFrame:
             seconds = time.perf_counter() - t
             picked = answer["evidence"] if answer else []
             evidence = list(dict.fromkeys(picked))     # llama-server ignores uniqueItems: drop repeats
-            rows.append({"hadm_id": hadm_id, "verdict": answer["verdict"] if answer else None,
-                         "evidence": evidence, "n_repeats": len(picked) - len(evidence),
-                         **check_evidence(note, evidence),
-                         "seconds": seconds, "chars": len(note), "cut": cut,
-                         "n_passages": len(note_passages),
-                         "rejected": timings.get("rejected", False)})
-    return pd.DataFrame(rows)
-
+            yield {"hadm_id": hadm_id, "verdict": answer["verdict"] if answer else None,
+                   "evidence": evidence, "n_repeats": len(picked) - len(evidence),
+                   **check_evidence(note, evidence),
+                   "seconds": seconds, "chars": len(note), "cut": cut,
+                   "n_passages": len(note_passages),
+                   "rejected": timings.get("rejected", False)}
 
 # --- the arm 0 cross-check (STATUS item 12, decided 2026-11-09 before test was touched) ----
 
@@ -401,6 +405,163 @@ def draw_cross_check_reads(checks: dict[str, pd.DataFrame], cap: int, seed: int)
     return picked
 
 
+# --- the test run (STATUS item 11, decided 2026-11-09 before test was touched) -----------
+# Draw first (pool, bands, the random sample, my 60 reads), then judge. The judge run saves
+# as it goes, resumes where it stopped, and prints progress only: no verdict is shown.
+
+
+def test_dir(cfg: dict) -> Path:
+    return Path(cfg["paths"]["judge"]) / "test"
+
+
+def test_set(config_path: str | Path, label: str) -> pd.DataFrame:
+    """Test notes, labels only (no text), sorted by hadm_id."""
+    notes = load_notes(config_path, columns=[label])
+    return notes[notes["split"] == "test"].sort_values("hadm_id").reset_index(drop=True)
+
+
+def band_names(depths: list[float]) -> list[str]:
+    """[1, 2, 4] -> ["1x", "1-2x", "2-4x"]."""
+    names, low = [], None
+    for d in depths:
+        names.append(f"{d:g}x" if low is None else f"{low:g}-{d:g}x")
+        low = d
+    return names
+
+
+def arm_bands(notes: pd.DataFrame, score: np.ndarray, label: str, depths: list[float]) -> pd.Series:
+    """Each uncoded note's band for one arm (index hadm_id): the shallowest depth whose top
+    (depth x coded count) holds it, named as band_names(); missing = below the last depth."""
+    band = pd.Series(index=notes.loc[notes[label] == 0, "hadm_id"], dtype=object)
+    for depth, name in reversed(list(zip(depths, band_names(depths), strict=True))):
+        band[flagged(notes, score, label, depth).to_numpy()] = name   # shallower bands overwrite
+    return band
+
+
+def bands_table(notes: pd.DataFrame, scores: dict[str, np.ndarray], label: str,
+                depths: list[float]) -> pd.DataFrame:
+    """Uncoded notes with each arm's band and the note's band = the shallower of the two."""
+    order = band_names(depths)
+    table = pd.DataFrame({arm: arm_bands(notes, s, label, depths) for arm, s in scores.items()})
+    rank = table.apply(lambda col: col.map({b: i for i, b in enumerate(order)}))
+    table["band"] = rank.min(axis=1).map(dict(enumerate(order)))       # NaN only if no arm has it
+    return table.rename_axis("hadm_id").reset_index()
+
+
+def draw_test_reads(bands: pd.DataFrame, quotas: dict[str, int], seed: int) -> pd.DataFrame:
+    """My blind reads: quotas[band] notes drawn at random within each band (all of them if the
+    band is short; no topping up), shuffled. Returns read_id, hadm_id, band."""
+    rng = np.random.default_rng(seed)
+    picked = []
+    for band, k in quotas.items():
+        ids = np.sort(bands.loc[bands["band"] == band, "hadm_id"].to_numpy())
+        for h in rng.choice(ids, size=min(k, len(ids)), replace=False):
+            picked.append((int(h), band))
+    order = rng.permutation(len(picked))                     # reading order hides the band
+    return pd.DataFrame([{"read_id": f"T{i + 1:02d}", "hadm_id": picked[j][0], "band": picked[j][1]}
+                         for i, j in enumerate(order)])
+
+
+def test_scores(cfg: dict, notes: pd.DataFrame, label: str) -> dict[str, np.ndarray]:
+    """Each gap-set arm's test scores, in the row order of notes (from score_test.py)."""
+    out = {}
+    for arm, stem in cfg["judge"]["arms"].items():
+        s = pd.read_parquet(Path(cfg["paths"]["scores"]) / "test" / f"{stem}-{label}.parquet")
+        score = notes[["hadm_id"]].merge(s, on="hadm_id", how="left", validate="one_to_one")["score"]
+        if score.isna().any():
+            raise ValueError(f"{stem}: {int(score.isna().sum()):,} test notes without a score")
+        out[arm] = score.to_numpy()
+    return out
+
+
+def run_test_draw(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> None:
+    """Bands, the random sample below the last band, my 60 reads, and the judging order.
+
+    Run once, before the judge: refuses if the draw exists. Prints counts only.
+    """
+    cfg = load_config(config_path)
+    tcfg = cfg["judge"]["test"]
+    out = test_dir(cfg)
+    if (out / "reads.csv").exists():
+        raise FileExistsError(f"{out / 'reads.csv'} exists: the test draw is done. "
+                              f"Delete it on purpose to redraw.")
+
+    notes = test_set(config_path, label)
+    bands = bands_table(notes, test_scores(cfg, notes, label), label, tcfg["depths"])
+    below = np.sort(bands.loc[bands["band"].isna(), "hadm_id"].to_numpy())
+    sample = np.random.default_rng(tcfg["sample_seed"]).choice(below, size=min(tcfg["sample_n"], len(below)),
+                                                               replace=False)
+    bands["in_sample"] = bands["hadm_id"].isin(sample)
+    reads = draw_test_reads(bands, tcfg["reads"], tcfg["reads_seed"])
+
+    to_judge = np.sort(bands.loc[bands["band"].notna() | bands["in_sample"], "hadm_id"].to_numpy())
+    to_judge = np.random.default_rng(tcfg["order_seed"]).permutation(to_judge)   # a stop leaves a fair mix
+
+    texts = load_whole_notes(reads["hadm_id"].tolist(), config_path).set_index("hadm_id")["text"]
+    out.mkdir(parents=True, exist_ok=True)
+    bands.to_parquet(out / "bands.parquet", index=False)
+    pd.DataFrame({"hadm_id": to_judge}).to_parquet(out / "to-judge.parquet", index=False)
+    reads.to_parquet(out / "reads-key.parquet", index=False)
+    with open(out / "reads-notes.txt", "w") as f:
+        for r in reads.itertuples():
+            note = texts[r.hadm_id][: cfg["judge"]["max_note_chars"]]
+            f.write(f"{'=' * 70}\n{r.read_id}\n{'=' * 70}\n\n{note}\n\n")
+    reads[["read_id"]].assign(verdict="", comment="").to_csv(out / "reads.csv", index=False)
+
+    coded = int(notes[label].sum())
+    print(f"test: {len(notes):,} notes, {coded:,} coded; bands at {tcfg['depths']} x coded count")
+    print("pool (uncoded, either arm), by the shallower band:",
+          bands["band"].value_counts().reindex(band_names(tcfg["depths"]), fill_value=0).to_dict())
+    print(f"random sample: {len(sample):,} of {len(below):,} uncoded notes below the last band")
+    print("my reads by band:",
+          reads["band"].value_counts().reindex(list(tcfg["reads"]), fill_value=0).to_dict())
+    print(f"to judge: {len(to_judge):,} notes; at {tcfg['seconds_per_note']} s a note about "
+          f"{len(to_judge) * tcfg['seconds_per_note'] / 3600:.0f} h")
+    print(f"read:  {out / 'reads-notes.txt'}\nfill:  {out / 'reads.csv'}  (verdict: {', '.join(VERDICTS)})")
+
+
+def judged_so_far(parts: Path) -> set[int]:
+    if not parts.exists():
+        return set()
+    return {int(h) for f in sorted(parts.glob("part-*.parquet"))
+            for h in pd.read_parquet(f, columns=["hadm_id"])["hadm_id"]}
+
+
+def run_test_judge(config_path: str | Path = "config/config.yaml") -> None:
+    """The frozen judge on every note in to-judge.parquet, in that order. Saves a part file
+    every save_every notes; run again after a stop and it carries on with the notes not yet
+    judged. Prints progress only: no verdict, no quote."""
+    cfg = load_config(config_path)
+    tcfg = cfg["judge"]["test"]
+    out = test_dir(cfg)
+    parts = out / "parts"
+    order = pd.read_parquet(out / "to-judge.parquet")["hadm_id"].tolist()
+    done = judged_so_far(parts)
+    left = [h for h in order if h not in done]
+    print(f"{len(order):,} notes to judge; {len(done):,} done before; {len(left):,} left", flush=True)
+    if not left:
+        return
+    texts = load_whole_notes(left, config_path).set_index("hadm_id").loc[left].reset_index()
+
+    parts.mkdir(parents=True, exist_ok=True)
+    k = len(list(parts.glob("part-*.parquet")))
+    batch, n, failed, seconds = [], 0, 0, []
+    start = time.perf_counter()
+    for row in judge_rows(cfg, texts):
+        batch.append(row)
+        n += 1
+        failed += row["verdict"] is None
+        seconds.append(row["seconds"])
+        if len(batch) == tcfg["save_every"] or n == len(left):
+            pd.DataFrame(batch).to_parquet(parts / f"part-{k:05d}.parquet", index=False)
+            k, batch = k + 1, []
+            elapsed = time.perf_counter() - start
+            print(f"{len(done) + n:,}/{len(order):,} judged; {np.median(seconds):.1f} s a note (median); "
+                  f"about {elapsed / n * (len(left) - n) / 3600:.1f} h left; "
+                  f"no valid answer so far: {failed:,}", flush=True)
+    print("finished: answers saved under data/, not shown", flush=True)
+
+    
 # --- the timing run (validation, development only) --------------------------------------
 
 
@@ -584,6 +745,8 @@ if __name__ == "__main__":
         "pilot-draw": run_pilot_draw,
         "pilot-judge": run_pilot_judge,
         "pilot-compare": run_pilot_compare,
+        "test-draw": run_test_draw,
+        "test-judge": run_test_judge,
     }
     parser = argparse.ArgumentParser(description="The LLM judge (Week 3).")
     parser.add_argument("command", choices=list(commands), help="which step to run")

@@ -12,14 +12,19 @@ import pytest
 
 from dementia_undercoding.judge import (
     VERDICTS,
+    arm_bands,
     ask,
+    band_names,
+    bands_table,
     certain_mentions,
     check_evidence,
     cross_check,
     draw_cross_check_reads,
+    draw_test_reads,
     flagged,
     judge_messages,
     judge_schema,
+    judged_so_far,
     locate,
     passages,
     read_pilot_reads,
@@ -268,7 +273,7 @@ def test_cross_check_counts_drug_only_notes_but_never_flags_them():
     assert out["drug_only"].to_dict() == {1: True, 2: False, 3: False, 4: False, 5: False}
     assert out["flagged"].to_dict() == {1: False, 2: False, 3: True, 4: False, 5: False}
 
-    
+
 def test_cross_check_reads_only_what_the_judge_saw():
     judged = pd.DataFrame({"hadm_id": [1], "verdict": ["None"]})
     texts = pd.DataFrame({"hadm_id": [1], "text": ["x" * 50 + " PMH: dementia."]})
@@ -310,3 +315,58 @@ def test_draw_skips_unflagged_and_rejects_overlap():
     assert sorted(draw_cross_check_reads(checks, cap=50, seed=12)["hadm_id"]) == [1, 3]
     with pytest.raises(ValueError, match="more than one set"):
         draw_cross_check_reads(_checks([1], [1]), cap=50, seed=12)
+
+
+# --- the test run: bands and the reads draw (invented numbers, no text) -------------------
+
+
+def _ranked(n_coded=2, n=20):
+    """n notes sorted by hadm_id; the first n_coded are coded."""
+    return pd.DataFrame({"hadm_id": np.arange(1, n + 1),
+                         "dementia_core": [1] * n_coded + [0] * (n - n_coded)})
+
+
+def test_band_names():
+    assert band_names([1, 2, 4]) == ["1x", "1-2x", "2-4x"]
+    assert band_names([1, 1.5]) == ["1x", "1-1.5x"]
+
+
+def test_arm_bands_cut_at_multiples_of_the_coded_count():
+    notes = _ranked()                                      # 2 coded: top 2 / 4 / 8
+    score = -notes["hadm_id"].to_numpy().astype(float)     # rank = hadm_id order
+    band = arm_bands(notes, score, "dementia_core", [1, 2, 4])
+    # top 2 are the coded notes 1-2, so 1x holds no uncoded note; 3-4 are 1-2x; 5-8 are 2-4x
+    assert band.loc[3] == "1-2x" and band.loc[4] == "1-2x"
+    assert list(band.loc[5:8]) == ["2-4x"] * 4
+    assert band.loc[9:].isna().all()
+    assert 1 not in band.index                             # coded notes are never in the table
+
+
+def test_bands_table_takes_the_shallower_band():
+    notes = _ranked(n_coded=1, n=10)                       # 1 coded: top 1 / 2 / 4
+    a = -notes["hadm_id"].to_numpy().astype(float)         # arm A ranks 1, 2, 3, ...
+    b = notes["hadm_id"].to_numpy().astype(float)          # arm B ranks 10, 9, 8, ...
+    table = bands_table(notes, {"A": a, "B": b}, "dementia_core", [1, 2, 4]).set_index("hadm_id")
+    assert table.loc[2, "A"] == "1-2x" and pd.isna(table.loc[2, "B"]) and table.loc[2, "band"] == "1-2x"
+    assert table.loc[10, "B"] == "1x" and table.loc[10, "band"] == "1x"
+    assert table.loc[9, "B"] == "1-2x" and table.loc[9, "band"] == "1-2x"
+    assert pd.isna(table.loc[6, "band"])                   # inside neither arm's 4x
+
+
+def test_draw_test_reads_by_band_without_topping_up():
+    bands = pd.DataFrame({"hadm_id": range(1, 101),
+                          "band": ["1x"] * 50 + ["1-2x"] * 40 + ["2-4x"] * 5 + [None] * 5})
+    reads = draw_test_reads(bands, {"1x": 35, "1-2x": 15, "2-4x": 10}, seed=59)
+    assert reads["band"].value_counts().to_dict() == {"1x": 35, "1-2x": 15, "2-4x": 5}   # short band: all 5
+    assert reads["hadm_id"].is_unique and list(reads.columns) == ["read_id", "hadm_id", "band"]
+    assert reads["read_id"].iloc[0] == "T01"
+    assert reads.equals(draw_test_reads(bands, {"1x": 35, "1-2x": 15, "2-4x": 10}, seed=59))
+    assert reads["band"].iloc[:35].nunique() > 1           # shuffled: not all 1x first
+
+
+def test_judged_so_far_reads_part_files(tmp_path):
+    assert judged_so_far(tmp_path / "parts") == set()
+    (tmp_path / "parts").mkdir()
+    pd.DataFrame({"hadm_id": [3, 1]}).to_parquet(tmp_path / "parts" / "part-00000.parquet")
+    pd.DataFrame({"hadm_id": [7]}).to_parquet(tmp_path / "parts" / "part-00001.parquet")
+    assert judged_so_far(tmp_path / "parts") == {1, 3, 7}
