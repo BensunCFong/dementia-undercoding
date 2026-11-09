@@ -179,9 +179,23 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
      and the LoRA-vs-LightGBM test is reported as not run, with this rule as the reason.
    - Pilot: about 30 validation gap-set notes read blind by me and by the judge, to adjust the
      prompt before freezing. Development only, never reported as the result.
-9. Next: build the judge and time it on whole notes (validation); pilot reads; then band edges and
-   the random-sample size; test-scoring path; `validator_rx.py` and the age-only arm;
-   `icd_version` and subgroups.
+9. **Judge built and timed, 2026-11-09** (`judge.py`; development on validation, not a result).
+   50 notes from a provisional gap set (uncoded notes in either arm's top 2x coded count, 1,311
+   notes): 12.7 s per note median, about 3.7 h per 1,000 notes; no note cut or refused.
+   **Evidence by constrained decoding, decided after the first timing run and before the
+   pilot:** the judge does not retype its evidence; it picks up to 3 passages (the note's own
+   sentences and list lines, bare headings left out) and llama-server allows only those. The
+   first run, with free quoting, had 1 edited quote in 140 (a dropped "it" next to a
+   de-identified gap) and 11 passages joined together; with picked passages, 148 of 148 were
+   exact. Every quote is still checked in code and given a tier (exact / formatting / joined /
+   edited / not copied); any non-exact quote would mean a bug in the splitting.
+   The verdict mix changed between the two runs (Possible 19 to 22, Acute only 17 to 14,
+   Documented 14 to 12, None 0 to 2: at least 5 of 50 notes), from the evidence format alone.
+   Verdicts are sensitive to prompt and format, so the prompt is frozen after the pilot and any
+   later change counts as a new judge.
+10. Next: pilot reads (about 30 validation notes, blind, excluding the 50 timing-run notes),
+    watching how often Possible is used; then band edges and the random-sample size;
+    test-scoring path; `validator_rx.py` and the age-only arm; `icd_version` and subgroups.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
