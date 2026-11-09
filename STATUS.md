@@ -207,7 +207,7 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
     - v5 (my idea, weigh Acute only against Possible using "returned to baseline") was tested
       against a rule written before it ran (Documented 4/4 with none false, all 13 None kept,
       Acute only better than 0/3). It failed the third condition and was rejected.
-    - **Frozen: v4** (commit to follow), plus dropping repeated passages in code (llama-server
+    - **Frozen: v4** (ef7d6a2), plus dropping repeated passages in code (llama-server
       ignores uniqueItems; repeats were common). Any later prompt change is a new judge.
     - Known weaknesses: v4 never used Acute only in the pilot (my Acute only notes went to
       Possible); a history of memory loss and an unexplained "poor historian" were read as
@@ -223,7 +223,7 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
       only and never pooled with the test reads.
 11. Next: band edges, the random-sample size and the test-read strata; the arm 0 cross-check;
     test-scoring path; `validator_rx.py` and the age-only arm; `icd_version` and subgroups.
-    
+
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 ## Next
