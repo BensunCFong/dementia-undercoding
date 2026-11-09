@@ -26,6 +26,8 @@ ARMS = {
     "arm 1b LightGBM": "arm1b-lgbm",
     "arm 2 LoRA main": "arm2-lora-main",
     "arm 2 LoRA h+t": "arm2-lora-main-head_tail",
+    "arm 3 MedGemma 4B": "arm3-medgemma-1.5-4b",
+    "arm 3 Qwen 9B": "arm3-qwen3.5-9b",
 }
 
 
@@ -42,22 +44,26 @@ def load_scores(cfg: dict, val: pd.DataFrame, label: str) -> dict:
     return out
 
 
-def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> pd.DataFrame:
+def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_core",
+        reference: str | None = None) -> pd.DataFrame:
     cfg = load_config(config_path)
     ccfg = cfg["compare"]
+    reference = reference or ccfg["reference"]
+    if reference not in ARMS:
+        raise ValueError(f"unknown reference {reference!r}; choose one of: {', '.join(ARMS)}")
     notes = load_notes(config_path, columns=[label])           # no text column read
     val = notes[notes["split"] == "validation"].reset_index(drop=True)
     scores = load_scores(cfg, val, label)
 
     workers = max(1, (os.cpu_count() or 2) - 2)
-    table = compare(val[label], scores, val["subject_id"], ccfg["reference"],
+    table = compare(val[label], scores, val["subject_id"], reference,
                     ci=ccfg["ci"], n_boot=ccfg["n_boot"], seed=ccfg["seed"], workers=workers)
 
     pct = round(ccfg["ci"] * 100)
     print(f"validation: {len(val):,} notes, {val['subject_id'].nunique():,} patients, "
           f"{int(val[label].sum()):,} positives; "
           f"{ccfg['n_boot']:,} patient-level resamples, {pct}% intervals")
-    print(f"diff = arm minus {ccfg['reference']}\n")
+    print(f"diff = arm minus {reference}\n")
     print(f"{'arm':<18} {'PR-AUC':>7}  {f'{pct}% interval':<17} {'diff':>7}  {f'{pct}% interval':<17}")
     for r in table.itertuples():
         print(f"{r.arm:<18} {r.pr_auc:>7.3f}  [{r.ci_low:.3f}, {r.ci_high:.3f}]    "
@@ -66,4 +72,9 @@ def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_c
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Compare every arm on validation.")
+    parser.add_argument("--reference", help="arm the diffs are taken against, by its name in ARMS "
+                                            "(default: compare.reference in config)")
+    run(reference=parser.parse_args().reference)

@@ -123,9 +123,20 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
      write-up says so and gives this rule.
    - Arms 0, 1, 1b and both LoRA runs are frozen and may be scored on test without waiting for arm
      3, once the Week 3 rules (arm, split, cutoff) are written.
-3. Next: arm 3 full validation (timing on 200 notes: MedGemma 4.9 h, Qwen 10.8 h); then the
-   Week 3 gap-set arm (decided before any validator score); then
-   `validator_rx.py` and the age-only arm; `icd_version` and subgroups.
+3. **Arm 3 full validation finished** 2026-11-09: MedGemma 1.5 4B 0.447 [0.399, 0.491], Qwen3.5-9B
+   0.657 [0.610, 0.700]. Qwen beats arm 0 (+0.035 [+0.012, +0.058]) and trails arm 1 (-0.073
+   [-0.099, -0.046]). Neither clears the 0.730 route of the test rule; the hidden-row route is
+   still open until the validator is built.
+4. **Week 3 gap-set arms, decided 2026-11-09 after the code-label results and before any validator
+   score:** two gap sets side by side, LightGBM (best on code labels) and LoRA main (reads words
+   in context, so its extra flags are the test of the implicit-language idea). Arm 3 is not a
+   gap-set arm. Judge: Qwen3.5-9B, decided 2026-11-09 after arm 3's validation results (larger
+   general model; MedGemma weaker on every measure). Code-label PR-AUC is not evidence of judging
+   skill; the judge is trusted only if it meets an agreement rule against 100 notes read blind by
+   me, to be written before it judges anything.
+5. Next: Week 3 split, then cutoff, then how the two sets are reported and read (both, LoRA
+   only, LightGBM only), then the judge agreement rule; then `validator_rx.py` and the age-only
+   arm; `icd_version` and subgroups.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
