@@ -242,3 +242,8 @@ Any of these, and they get published as readily as a positive finding:
 - The coding gap is small, and MIMIC coding is better than expected.
 - Regex wins, and the fine-tuned model adds nothing.
 - The gap set is mostly delirium once the validators are applied.
+
+## License
+
+The code is MIT-licensed (`LICENSE`). The license covers this repository's code and documents
+only. MIMIC-IV data is not included and stays under its PhysioNet data use agreement.
