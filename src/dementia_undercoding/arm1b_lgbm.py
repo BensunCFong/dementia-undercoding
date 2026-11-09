@@ -27,11 +27,15 @@ from .evaluate import report, save_scores, score
 from .splits import load_notes, validation_patients
 
 
-def fit_and_score(notes: pd.DataFrame, label: str, cfg: dict, params: dict = PARAMS) -> dict:
+def fit_and_score(
+    notes: pd.DataFrame, label: str, cfg: dict, params: dict = PARAMS, extra: pd.DataFrame | None = None
+) -> dict:
     """Fit on train minus an inner slice, stop early on the slice, score validation.
 
     cfg is the arm1b block of config.yaml. Returns metrics, plus val_scores:
-    one probability per validation note, in row order.
+    one probability per validation note, in row order. extra: more notes (a text
+    column) scored by the same fitted model, no metrics; their scores come back as
+    extra_scores. Used to score test with the validated model.
     """
     train = notes[notes["split"] == "train"]
     val = notes[notes["split"] == "validation"]
@@ -64,7 +68,7 @@ def fit_and_score(notes: pd.DataFrame, label: str, cfg: dict, params: dict = PAR
     fit_seconds = time.perf_counter() - start
 
     val_scores = model.predict_proba(x_val)[:, 1]
-    return {
+    out = {
         "val": score(val[label], val_scores),
         "inner": score(inner[label], model.predict_proba(x_inner)[:, 1]),
         "train": score(fit[label], model.predict_proba(x_fit)[:, 1]),
@@ -72,7 +76,10 @@ def fit_and_score(notes: pd.DataFrame, label: str, cfg: dict, params: dict = PAR
         "n_features": int(x_fit.shape[1]),
         "fit_seconds": fit_seconds,
         "val_scores": val_scores,
-    }
+    }    
+    if extra is not None:
+        out["extra_scores"] = model.predict_proba(vectorizer.transform(extra["text"]))[:, 1]
+    return out
 
 
 def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> dict:

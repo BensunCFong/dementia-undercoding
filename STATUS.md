@@ -263,7 +263,21 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
       per set and never read: notes with a certain mention of one of arm 0's drug names, no
       certain diagnosis mention, and no Documented verdict. It sizes how far the reads may
       understate the judge's misses, and it never changes a verdict.
-13. Next: test-scoring path (arms 1 and 1b refit on train, LoRA from its saved adapters);
+13. **Test-scoring path, decided 2026-11-09 before test was touched** (`score_test.py`):
+    - Arms 1 and 1b refit on exactly what they used for validation (train minus validation,
+      same settings and seeds), so test is scored by the validated models and LightGBM vs
+      LoRA stays fair (LoRA's adapters saw train minus validation). LoRA loads its saved
+      adapters. Each refit or reloaded model must first reproduce its saved validation scores
+      (within 1e-5), or nothing is written.
+    - Scores only: no metric is printed or logged when test is scored. Results are computed in
+      a separate step, after the remaining choices (validator, arm 3, subgroups) are made.
+    - Locked: refuses to run until `test_scoring.allowed` is set to true in its own commit,
+      which records when test was opened.
+    - Scored once: an existing test score file is refused, never overwritten.
+    - Route to the judge: STATUS item 2 already allows scoring arms 0, 1, 1b and both LoRA runs on
+      test now. The rest of this list is CPU work on validation and is done while the judge runs;
+      the judge's test run prints no verdicts, and no test result is looked at until then.
+14. Next:
     `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
     `icd_version` and subgroups. The cross-check's command (run on the judge's test answers,
     the reads draw) is wired in with the test judge run.

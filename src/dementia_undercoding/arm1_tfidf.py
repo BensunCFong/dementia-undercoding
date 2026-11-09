@@ -48,10 +48,14 @@ def build_pipeline(params: dict = PARAMS) -> Pipeline:
     ])
 
 
-def fit_and_score(notes: pd.DataFrame, label: str, params: dict = PARAMS) -> dict:
+def fit_and_score(
+    notes: pd.DataFrame, label: str, params: dict = PARAMS, extra: pd.DataFrame | None = None
+) -> dict:
     """Fit on split == 'train', score on split == 'validation'.
 
     Returns metrics, plus val_scores: one probability per validation note, in row order.
+    extra: more notes (a text column) scored by the same fitted model, no metrics; their
+    scores come back as extra_scores. Used to score test with the validated model.
     """
     train = notes[notes["split"] == "train"]
     val = notes[notes["split"] == "validation"]
@@ -65,13 +69,16 @@ def fit_and_score(notes: pd.DataFrame, label: str, params: dict = PARAMS) -> dic
     val_scores = pipe.predict_proba(val["text"])[:, 1]
     val_result = score(val[label], val_scores)
     train_result = score(train[label], pipe.predict_proba(train["text"])[:, 1])
-    return {
+    out = {
         "val": val_result,
         "train": train_result,
         "vocab_size": len(pipe.named_steps["tfidf"].vocabulary_),
         "fit_seconds": fit_seconds,
         "val_scores": val_scores,
     }
+    if extra is not None:
+        out["extra_scores"] = pipe.predict_proba(extra["text"])[:, 1]
+    return out
 
 
 def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> dict:

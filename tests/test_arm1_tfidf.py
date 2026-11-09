@@ -29,3 +29,11 @@ def test_returns_metrics_only():
     values = [*result["val"].values(), *result["train"].values(), result["vocab_size"]]
     assert all(isinstance(v, int | float) for v in values)
     assert len(result["val_scores"]) == (fake_notes()["split"] == "validation").sum()
+
+
+def test_extra_notes_scored_by_the_same_model():
+    notes = fake_notes()
+    extra = notes[notes["split"] == "validation"].reset_index(drop=True)
+    result = fit_and_score(notes, "dementia_core", {**PARAMS, "min_df": 1}, extra=extra)
+    assert np.allclose(result["extra_scores"], result["val_scores"])
+    assert "extra_scores" not in fit_and_score(notes, "dementia_core", {**PARAMS, "min_df": 1})    

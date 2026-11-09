@@ -55,3 +55,10 @@ def test_inner_slice_is_whole_train_patients():
     inner = train[train["subject_id"].isin(inner_ids)]
     rest = train[~train["subject_id"].isin(inner_ids)]
     assert inner_ids and set(inner["subject_id"]).isdisjoint(rest["subject_id"])
+
+
+def test_extra_notes_scored_by_the_same_model():
+    notes = fake_notes()
+    extra = notes[notes["split"] == "validation"].reset_index(drop=True)
+    result = fit_and_score(notes, "dementia_core", CFG, {**PARAMS, "min_df": 1}, extra=extra)
+    assert np.allclose(result["extra_scores"], result["val_scores"])
