@@ -71,21 +71,26 @@ JUDGE_SYSTEM = (
     "long-standing decline in memory or thinking? You do not diagnose. You decide only what the "
     "note documents, using the whole note. Only the patient's own cognition counts: dementia or "
     "memory problems in a spouse, parent or anyone else is never evidence about the patient.\n\n"
-    "Decide in this order and stop at the first verdict that fits:\n"
+    "Decide in three steps:\n"
     "1. Documented: the note states dementia for the patient (any type, including Alzheimer's "
     "disease), anywhere in the note and even in a list with other conditions, or clearly "
     "describes cognitive impairment that predates this admission, for example memory loss over "
     "months or years reported by family, or needing help with daily activities because of memory "
-    "or thinking. A cognitive problem during this admission does not change this verdict.\n"
-    "2. Possible: the note raises a cognitive concern, but it is unclear whether it predates this "
-    "admission or how severe it is. Mild cognitive impairment goes here. A history of memory "
-    "problems, or any hint that a cognitive problem was present before this admission, goes here, "
-    "as does a patient called a poor historian with no other reason given (such as sedation, "
-    "intubation, language or hearing).\n"
-    "3. Acute only: the note describes an acute cognitive problem during this admission and treats "
-    "it as a problem: it names delirium or encephalopathy, or describes an assessment or treatment "
-    "aimed at the confusion (not only at the illness causing it). There must be such a problem.\n"
-    "4. None: anything else. No cognitive impairment is documented, or it is denied, ruled out, or "
+    "or thinking. A cognitive problem during this admission does not change this verdict. If the "
+    "note is Documented, stop here.\n"
+    "2. Otherwise, if the note describes any cognitive concern, weigh Acute only against Possible "
+    "using the whole note:\n"
+    "- Acute only: an acute cognitive problem during this admission that the note treats as a "
+    "problem: it names delirium or encephalopathy, or describes an assessment or treatment aimed "
+    "at the confusion (not only at the illness causing it). If the note says the confusion "
+    "resolved or the patient returned to baseline, and nothing points to a problem before this "
+    "admission, the verdict is Acute only.\n"
+    "- Possible: a cognitive concern that may predate this admission, or whose timing or severity "
+    "is unclear: mild cognitive impairment, a history of memory problems, a baseline described as "
+    "impaired, or a patient called a poor historian with no other reason given (such as sedation, "
+    "intubation, language or hearing). A baseline described as normal is never a reason for "
+    "Possible.\n"
+    "3. None: anything else. No cognitive impairment is documented, or it is denied, ruled out, or "
     "describes someone other than the patient. Normal cognition (alert, oriented, clear and "
     "coherent) with no cognitive problem is None. Words such as \"confused\", \"lethargic\" or "
     "\"altered\" in passing, in a very sick patient whose note does not treat the confusion itself "
@@ -140,8 +145,7 @@ def passages(note: str) -> list[str]:
 def judge_schema(note_passages: list[str]) -> dict:
     """The answer shape for one note: up to 3 of its passages, then one of the four verdicts."""
     if note_passages:
-        evidence = {"type": "array", "items": {"type": "string", "enum": note_passages}, "maxItems": 3,
-                    "uniqueItems": True}
+        evidence = {"type": "array", "items": {"type": "string", "enum": note_passages}, "maxItems": 3}
     else:
         evidence = {"type": "array", "maxItems": 0}
     return {
@@ -329,9 +333,11 @@ def judge_notes(cfg: dict, texts: pd.DataFrame) -> pd.DataFrame:
             answer, timings = ask(server.url, judge_messages(note), jcfg["max_tokens"],
                                   judge_schema(note_passages))
             seconds = time.perf_counter() - t
-            evidence = answer["evidence"] if answer else []
+            picked = answer["evidence"] if answer else []
+            evidence = list(dict.fromkeys(picked))     # llama-server ignores uniqueItems: drop repeats
             rows.append({"hadm_id": hadm_id, "verdict": answer["verdict"] if answer else None,
-                         "evidence": evidence, **check_evidence(note, evidence),
+                         "evidence": evidence, "n_repeats": len(picked) - len(evidence),
+                         **check_evidence(note, evidence),
                          "seconds": seconds, "chars": len(note), "cut": cut,
                          "n_passages": len(note_passages),
                          "rejected": timings.get("rejected", False)})
