@@ -182,7 +182,7 @@ arm3:
 test_scoring:
   # score_test.py, rules decided 2026-11-09 (STATUS item 13). Turned on by hand, in its own
   # commit, when test is opened: that commit records when test was first scored.
-  allowed: false
+  allowed: true               # HERE WE GOOOOOOO
   reproduce_tol: 1.0e-5          # largest allowed gap between re-scored and saved validation scores
 
 judge:
