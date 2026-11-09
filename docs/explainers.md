@@ -38,12 +38,13 @@ Job 2 is only defensible if job 1 holds up.
 | In the lab | Here |
 |---|---|
 | Fold change vs control | **Lift**: PR-AUC divided by chance (arm 1: 0.730 / 0.036 = 20x) |
-| Error bars / 95% CI | **Bootstrap CI** (still to build) |
+| Error bars / 95% CI | **Bootstrap CI**, resampling patients (`compare_arms.py`) |
 | p < 0.05 | Whether the CI excludes chance, or another arm |
 
-Arm 1 beating chance is a formality. The comparison where significance matters is LoRA vs
-arm 1, and since both are scored on the same 820 notes, the right test pairs them note by note,
-like a paired t-test rather than two separate error bars.
+Arm 1 beating chance is a formality. The comparisons where significance matters are between
+arms, and since every arm is scored on the same 820 notes, the right test pairs them, like a
+paired t-test rather than two separate error bars. The bootstrap does this by patient: each
+resample draws patients, and every arm is scored on that same draw.
 
 ## Train vs validation: the train score is a health check, not a result
 
@@ -169,24 +170,57 @@ flatter validation slightly; the test set (2017-2019) falls outside the overlap.
 | A strong simple baseline alongside the fine-tune | Arm 1, TF-IDF + logistic regression |
 | Sweeps over rank and target modules (for example rank 4, 8, 16) | Narrower by design: one pre-declared fallback, rank 12, run only if the main run scores below 0.76 |
 | Results averaged over several random seeds (often 3 to 5), because fine-tuning outcomes vary with the seed | **One seed per configuration.** A known gap: the bootstrap measures how much the score moves with a different sample of patients, not how much it moves with a different training run. A second seed of the main run is a candidate for an optional slot |
-| Paired comparison of models on the same evaluation set | Paired bootstrap over patients: LoRA minus arm 1, with a 95% CI |
-| Long clinical notes: truncation compared against chunking or other input choices | Truncation at 512 tokens. About 41% of notes are longer, and the section order (HPI, then PMH) means PMH is cut first. One truncation follow-up is planned |
+| Paired comparison of models on the same evaluation set | Paired bootstrap over patients: every arm minus LoRA main, with a 95% CI |
+| Long clinical notes: truncation compared against chunking or other input choices | Truncation at 512 tokens. About 41% of notes are longer, and the section order (HPI, then PMH) means PMH is cut first. One follow-up, first 128 + last 382 tokens, scored the same as the main run (-0.007 [-0.029, +0.012]), so chunking was not run |
 
-## Run plan for the weekend of 2026-11-07
+## What ran on the weekend of 2026-11-07
 
 Each LoRA run is about 6 hours of training (two passes) plus about 20 minutes of scoring. The
-GPU holds one run at a time (about 15 GB).
+GPU holds one run at a time (about 15 GB). The plan was written before any run; this is what
+happened.
 
-| When | Run | Rule |
+| Run | Rule, written in advance | Outcome |
 |---|---|---|
-| Sat ~21:40 to ~03:50 | Main: rank 8, alpha 16, two passes | Always |
-| ~03:50 to ~10:15 | Fallback: rank 12, alpha 24 | Starts on its own only if main validation PR-AUC < 0.76 |
-| Sun 12:00 to 18:00 | Optional slot 1 | Chosen Sunday morning, before reading the main score |
-| Sun 21:00 to 03:00 | Optional slot 2 | Chosen Sunday |
-| Mon | GPU free | |
+| Main: rank 8, alpha 16, two passes | Always | 0.768 on validation, 6.15 h |
+| Fallback: rank 12, alpha 24 | Only if main scored below 0.76 | Not run: 0.768 cleared the bar |
+| Optional slot | Chosen 2026-11-08 from a truncation check of arm 0, after the main score and bootstrap were seen | Head + tail (first 128 + last 382 tokens): 0.761, the same as main |
+| Chunking | Only if head + tail beat main with the interval above zero | Not run |
 
-Candidates for the optional slots: a truncation follow-up (PMH first, or head and tail), core vs
-broad label, or a second seed of the main run. Chunking does not fit a 6-hour slot at two passes.
+The other candidates for the optional slot (core vs broad label, a second seed of the main run)
+were not used.
+
+## Arm 3: which two LLMs, and why
+
+Chosen 2026-11-08, before any arm 3 score. Both run in llama.cpp on this Mac, at 4-bit (Q4_K_M),
+so no note leaves the machine.
+
+| | MedGemma 1.5 4B | Qwen3.5-9B |
+|---|---|---|
+| Maker | Google | Alibaba |
+| Kind | Medically trained, small | General, larger |
+| Why | A purpose-built medical model that fits easily | The common choice for the best model a 32 GB Mac runs well |
+| Time for all of validation (from 200 notes) | About 4.9 h | About 10.8 h |
+
+Together they ask a question of their own: does medical training beat a bigger general model on
+these notes?
+
+**How a note is scored.** The model sees an instruction, four real train notes with their answers
+(drawn by a fixed rule: two coded, two uncoded with no explicit mention), then the note, and is
+asked whether it documents dementia. Nothing is generated: the score is P(Yes) / (P(Yes) + P(No))
+for the first answer token, so every note gets a number to rank on, like the other arms.
+
+**Published context, found after the choice.** A UCLA preprint (Lee et al., "MedJev: Evaluating
+Zero-Shot System-One Decision Making in Medicine", arXiv 2610.36006, October 2026, not yet peer
+reviewed) builds its model on Qwen3.5-9B and uses both models as baselines. It reads binary
+answers the same way, from the first answer token, and runs locally on Apple silicon with
+MIMIC-IV. On medical exam questions Qwen3.5-9B scored above MedGemma 1.5 4B on every benchmark
+they report (MedQA 68.6% vs 47.7%). The match is reassuring, not proof:
+
+- Their tasks are exam questions and structured-EHR prediction (mortality, readmission), not
+  reading notes for dementia; MedGemma was not run on their MIMIC tasks.
+- They ran 8-bit models in MLX, not 4-bit in llama.cpp, so numbers do not carry across.
+- Their own model was trained on MIMIC-IV-Note, which very likely includes this project's test
+  notes, so it could never be an arm here.
 
 ## Arm 0: the regex baseline, designed to be a serious competitor
 

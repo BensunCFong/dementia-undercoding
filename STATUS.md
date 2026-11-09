@@ -1,7 +1,7 @@
 # Project status
 
-As of 2026-11-08, evening: repo public on GitHub (MIT), 116 tests (106 + 1 skipped in CI, which
-installs only core packages).
+As of 2026-11-08, evening: repo public on GitHub (MIT), 125 tests locally (CI collects 116 and
+skips 1, since it installs only core packages).
 
 ## Results so far (validation only; test untouched)
 
@@ -83,6 +83,10 @@ matched LoRA main (above).
   `[CLS]`/`[SEP]`/padding built by hand (transformers 5.18 dropped the helper). Notes that fit in
   512 tokens get exactly the main run's input (tested). Its own run name, adapter folder and score
   file. Chosen 2026-11-08 **after** the main score and the bootstrap were seen; recorded in config.
+- **Arm 3 set up** (`arm3_llm.py`, 2026-11-08): MedGemma 1.5 4B and Qwen3.5-9B in llama.cpp on
+  127.0.0.1, 4-bit, few-shot (2 + 2 train notes drawn by rule), scored by P(Yes) on the first
+  answer token. Timed on 200 validation notes: no failures, no notes cut. Choice and context in
+  `docs/explainers.md`.
 
 ## Decided, not yet in code
 
@@ -127,8 +131,9 @@ Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 ## Next
 
-- Open decision: keep arm 3 (prompted local LLM) or prune it, on its own merits
-- Test set scored once, for every arm, after all choices are final
+- Arm 3 goes to test only under the rule in "In progress" above
+- Test set scored once, for every arm, after all choices are final (no test-scoring path exists
+  yet: arms 1 and 1b refit on train, LoRA loads its saved adapters)
 
 ## Public since 2026-11-08
 

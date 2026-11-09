@@ -85,7 +85,7 @@ third-party APIs or online services, and recommends locally deployed models. Con
 | Cohort build (DuckDB) | Mac | Reads gzipped CSVs in place, nothing copied |
 | Regex, TF-IDF, LightGBM | Mac | Trivial at this scale |
 | LoRA fine-tune (110M encoder) | Mac, MPS, full precision | About 3 h per pass; fp16 gave no speed-up on this GPU |
-| Prompted arm (7-8B, 4-bit) | Mac, MLX or llama.cpp | Fits comfortably in unified memory |
+| Prompted arm (4B and 9B, 4-bit) | Mac, llama.cpp | About 4 GB of memory for the 4B; one note at a time keeps the GPU about 94% busy |
 
 **Rejected: AWS.** My platform experience is Azure and Databricks, and AWS would add a third
 platform without adding anything this project needs. Credits stay unspent.
@@ -97,9 +97,10 @@ with zero GPU quota for the NC/ND families; a quota request could eat a week. Az
 also bills DBUs on top of VMs. And the platform is not the gap: I already have Azure
 experience (DP-203, AI-300, Synapse, ADLS Gen2). LoRA on a Mac is the same LoRA.
 
-**Taken: free Azure ML workspace for MLflow tracking.** Costs nothing (no compute, no storage
-used). Train locally, log runs remotely. Converts "MLflow, certification labs" into "MLflow
-tracking on Azure ML, four experiment arms, model registered."
+**Planned, not used: free Azure ML workspace for MLflow tracking.** The idea was to train
+locally and log runs remotely. In practice MLflow runs on a local SQLite store under `data/`, with
+metrics and parameters only, and no model is registered anywhere. Nothing about the science
+needed a remote tracker.
 
 **Dropped 2026-11-08: Delta Lake and PySpark locally.** The original plan used `delta-spark` in
 local mode for real Delta format with ACID semantics and time travel, plus a PySpark stage in
@@ -121,7 +122,7 @@ Weak labels from ICD codes, four arms, temporal split, then investigation of dis
 | 0 | Regex over explicit mentions | Serious competitor, not a strawman |
 | 1 | TF-IDF + logistic regression; LightGBM on same features | Classical baseline |
 | 2 | LoRA fine-tune of a clinical encoder (HuggingFace PEFT) | The capability being built |
-| 3 | Few-shot prompted local instruct model | Cost and quality comparison |
+| 3 | Few-shot prompted local LLM: MedGemma 1.5 4B and Qwen3.5-9B | Cost and quality comparison |
 
 **Split:** temporal, on `patients.anchor_year_group`. Train 2008-2013, test 2017-2019.
 2014-2016 held out entirely because it straddles the ICD-9 to ICD-10 transition. The anchor
@@ -147,8 +148,9 @@ where clinicians place the diagnostic boundary.
 trains on all 202,905 train notes, two passes, overnight. The test set is never sampled.
 
 **Tokens:** truncate to 512 by default. Dementia history almost always appears early, in HPI and
-past medical history. Chunking with stride 128 is run as a comparison to test whether the tail
-carries signal — a measured decision, not an assumed one.
+past medical history. Whether the tail carries signal was measured, not assumed: a second LoRA
+run read the first 128 plus the last 382 tokens and matched the main run (2026-11-08), so by a
+stop rule written before that result, chunking was not run.
 
 ## 6. The hypothesis worth testing
 
@@ -182,10 +184,10 @@ Done before any modelling. Retrofitting tests is how these projects die.
   have run and passed on every push since. "Tests pass on a clean machine" is now verified, not
   claimed.
 
-The repo stays private until commit authorship is settled: commits should carry a GitHub
-noreply address, not a personal email. Pushing early
-and privately was the right call: a committed data file is still a cheap fix here, and would be
-a public history rewrite after going public.
+The repo stayed private until commit authorship was settled (every commit now carries a GitHub
+noreply address) and went public on 2026-11-08, recreated so no pre-rewrite history remains.
+Pushing early and privately was the right call: a committed data file was still a cheap fix
+then, and would have been a public history rewrite after.
 
 ### Week 1 — cohort and baselines
 
@@ -209,11 +211,23 @@ so this is not evidence that ICD-10 itself codes more dementia. Reporting result
 
 ### Week 2 — the fine-tune
 
-- Arm 2: LoRA on `Bio_ClinicalBERT` via HuggingFace PEFT. `Clinical-Longformer` (4096 tokens) as
-  fallback if truncation loses too much.
-- Arm 3: local instruct model, few-shot, via MLX or llama.cpp.
-- Compare all four arms in MLflow. Record the winner (not "register": that uploads the model,
-  which stays under `data/`).
+- Arm 2: LoRA on `Bio_ClinicalBERT` via HuggingFace PEFT. `Clinical-Longformer` (4096 tokens) was
+  the fallback if truncation lost too much. Not needed: reading the end of the note did not help
+  (§5, Tokens).
+- Arm 3: two local models, few-shot, via llama.cpp. Chosen 2026-11-08, before any arm 3 score:
+  - **MedGemma 1.5 4B** (Google): small and medically trained.
+  - **Qwen3.5-9B** (Alibaba): larger and general, the common choice for a model this size on a
+    32 GB Mac.
+
+  One medical, one general, both run locally at 4-bit (Q4_K_M), so the pair also asks whether
+  medical training beats a bigger general model on these notes. The score is P(Yes) on the first
+  answer token, not generated text; the four examples are train notes drawn by a fixed rule. Not
+  the basis for the choice, but consistent with it: a UCLA preprint from October 2026 (Lee et
+  al., MedJev, arXiv 2610.36006) uses both models as baselines, reads binary answers the same
+  way, and runs locally on Apple silicon with MIMIC-IV (details in `docs/explainers.md`).
+- Compare the arms with a paired bootstrap over patients (`compare_arms.py`); MLflow keeps each
+  run's metrics. Record the winner (not "register": that uploads the model, which stays under
+  `data/`).
 
 **STOP POINT.** If life intervenes here, four arms plus a temporal split plus a result is
 publishable. Everything after is upside.

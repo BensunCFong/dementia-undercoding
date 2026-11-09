@@ -7,7 +7,8 @@ Dementia is under-coded in structured EHR data. Patients get described as confus
 or with family-reported memory loss, and no diagnosis code ever appears. This project treats the
 disagreements between model and codes as the finding rather than as error.
 
-Status: **week 0** — scaffold and cohort logic. No results yet.
+Status: **stage 3**. Every arm is scored on validation and compared with a paired patient
+bootstrap; the test set is untouched. Current numbers and decisions are in `STATUS.md`.
 
 ---
 
@@ -49,14 +50,19 @@ expires on a cycle and a lapsed certificate blocks download.
 
 ```bash
 git clone <this-repo> && cd dementia-undercoding
-python3 -m venv .venv && source .venv/bin/activate
-make install
+python3.11 -m venv .venv && source .venv/bin/activate
+make install                          # core + dev packages
+pip install -e ".[ml]"                # PyTorch, PEFT, MLflow: needed to run the arms
+git config core.hooksPath .githooks   # pre-commit hook that refuses data files
 ```
+
+Arm 3 also needs `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp) on the
+path and the two GGUF model files named in `config/config.yaml`.
 
 **3. Run the tests before any data exists.**
 
 ```bash
-make test     # 17 tests, all pass on a clean machine with no data present
+make test     # every test passes on a clean machine with no data present
 ```
 
 This is deliberate. The test suite validates ICD normalisation and matching against fixtures, not
@@ -66,27 +72,25 @@ record is downloaded.
 **4. Push and confirm CI is green.** Two jobs run: lint plus tests, and a separate job that fails
 the build if any data file has been committed.
 
-## Setup (part of Step 4)
-
-git clone <repo>
-cd dementia-undercoding
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-git config core.hooksPath .githooks
-pytest -q
-
-
 **5. Only now, download the data.** Place it under `data/` and point `config/config.yaml` at it.
 Nothing in `data/` is ever committed — see `data/.gitignore`.
 
 **6. Build the cohort.**
 
 ```bash
-make cohort   # writes data/cohort.duckdb and prints class balance
+make cohort   # writes data/derived/cohort.duckdb and prints class balance
 ```
 
 See *First number to watch* below before trusting the output.
+
+**7. Build the modelling dataset, then run the arms.**
+
+```bash
+make dataset  # writes data/derived/notes.parquet: baseline sections only
+python -m dementia_undercoding.arm0_regex     # likewise arm1_tfidf, arm1b_lgbm, arm2_lora
+python -m dementia_undercoding.arm3_llm --model qwen3.5-9b    # or medgemma-1.5-4b
+python -m dementia_undercoding.compare_arms   # paired bootstrap over every saved score
+```
 
 ---
 
@@ -97,9 +101,9 @@ Weak labels from ICD codes, four arms, temporal split, then investigation of the
 | Arm | Method | Purpose |
 | --- | --- | --- |
 | 0 | Regex over explicit mentions | Serious competitor, not a strawman |
-| 1 | TF-IDF + logistic regression; LightGBM | Classical baseline |
-| 2 | LoRA fine-tune of a clinical encoder | The capability being built |
-| 3 | Few-shot prompted local instruct model | Cost and quality comparison |
+| 1 | TF-IDF + logistic regression; LightGBM (1b) | Classical baseline |
+| 2 | LoRA fine-tune of Bio_ClinicalBERT | The capability being built |
+| 3 | Few-shot prompted local LLM: MedGemma 1.5 4B and Qwen3.5-9B | Cost and quality comparison |
 
 **Split.** Temporal, on `patients.anchor_year_group`. Train 2008-2013, test 2017-2019.
 2014-2016 is held out entirely because it straddles the ICD-9 to ICD-10 transition. The band
@@ -119,9 +123,10 @@ aged 65+), so accuracy is meaningless here.
 
 **Sampling.** None. Every train and test note is kept; arm 2 trains on all train notes.
 
-**Tokens.** Truncate to 512 by default — dementia history almost always appears early, in HPI and
-past medical history. Chunking with stride 128 is run as a comparison to test whether the tail
-carries signal. A measured decision, not an assumed one.
+**Tokens.** Arm 2 reads the first 512 tokens; dementia history usually appears early, in HPI and
+past medical history. A second run read the first 128 plus the last 382 tokens instead, to test
+whether the end of the note carries signal. It scored the same, so chunking was not run (the stop
+rule was written before that result). The other arms read the full baseline text.
 
 ---
 
@@ -161,11 +166,11 @@ dementia is the single largest risk factor for delirium, so excluding them would
 the patients most likely to have undiagnosed dementia and would bias the study toward null.
 
 **Validator 1 — medication proxy.** Cholinesterase inhibitors (donepezil, rivastigmine,
-galantamine) and memantine are close to dementia-specific and sit in `prescriptions`. Not used as
-a label, since they capture treated dementia only. Used to check the gap set: elevated rates in
-model-positive/code-negative admissions is orthogonal evidence the gap is real.
-Scored as each arm's PR-AUC at ranking drug-treated admissions among the uncoded ones (a check,
-not a training label); rules fixed 2026-11-08 before any arm was scored on it (`docs/explainers.md`).
+galantamine) and memantine are close to dementia-specific and sit in `prescriptions`. They are
+never a training label, since they capture treated dementia only. Instead, among uncoded
+admissions, each arm is scored on how well it ranks the ones with a dementia-drug order (PR-AUC,
+same paired bootstrap): evidence from outside the codes that an arm finds real, uncoded dementia.
+Rules fixed 2026-11-08 before any arm was scored on it (`docs/explainers.md`).
 
 **Validator 2 — future-coded confirmation.** MIMIC-IV has multiple admissions per patient. A
 patient who is note-positive and code-negative in 2016 and then carries a dementia code in 2018
@@ -192,22 +197,34 @@ whole exercise.
 Local, on an M1 Max with 32GB unified memory.
 
 - **DuckDB** — cohort build, reads the gzipped CSVs in place
-- **scikit-learn, LightGBM** — arms 0 and 1
+- **Python regex** — arm 0
+- **scikit-learn, LightGBM** — arms 1 and 1b
 - **PyTorch, HuggingFace Transformers, PEFT** — arm 2, LoRA on MPS at full precision
-- **MLX or llama.cpp** — arm 3, 7-8B instruct model at 4-bit
-- **MLflow** — all four arms tracked, local SQLite backend under `data/` or a personal Azure ML workspace
+- **llama.cpp** (`llama-server`, bound to 127.0.0.1) — arm 3, MedGemma 1.5 4B and Qwen3.5-9B at
+  4-bit (Q4_K_M)
+- **MLflow** — metrics and parameters for every run, local SQLite backend under `data/`
 
 ---
 
 ## Layout
 
 ```
-config/codes.yaml     ICD code sets, core and broad, with prefix-matching notes
-config/config.yaml    paths, cohort filters, split, sampling, tokens, MLflow
-src/.../codes.py      normalisation and matching. The riskiest code in the repo.
-src/.../cohort.py     DuckDB cohort build
-src/.../text.py       de-identification cleanup and chunking
-tests/                17 tests, mostly guarding the code-matching logic
+config/codes.yaml          ICD code sets, core and broad, with prefix-matching notes
+config/config.yaml         paths, split, every arm's fixed settings, MLflow
+src/.../codes.py           normalisation and matching. The riskiest code in the repo.
+src/.../cohort.py          DuckDB cohort build
+src/.../dataset.py         modelling dataset: baseline sections of each discharge summary
+src/.../text.py            de-identification cleanup, section parsing
+src/.../splits.py          validation split, drawn by patient
+src/.../arm0_regex.py      arm 0, explicit mentions with NegEx-style context
+src/.../arm1_tfidf.py      arm 1, TF-IDF + logistic regression
+src/.../arm1b_lgbm.py      arm 1b, LightGBM on arm 1's features
+src/.../arm2_lora.py       arm 2, LoRA on Bio_ClinicalBERT
+src/.../arm3_llm.py        arm 3, prompted local LLM via llama.cpp
+src/.../evaluate.py        PR-AUC, saved scores, paired patient bootstrap
+src/.../compare_arms.py    every arm against LoRA main, same resampled patients
+src/.../truncation.py      how much explicit signal each 512-token window keeps
+tests/                     no data needed; invented notes and fixtures only
 ```
 
 ---
@@ -218,6 +235,7 @@ tests/                17 tests, mostly guarding the code-matching logic
 make install
 make test
 make cohort
+make dataset
 make lint
 ```
 

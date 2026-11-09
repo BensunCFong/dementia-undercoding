@@ -52,19 +52,9 @@ label:
   # the matching works; this config only proves the SQL runs.
   prevalence_check: null   # skipped: too few patients to mean anything
 
-sample:
-  n: null        # no sampling, the demo is already tiny
-  seed: 20260821
-
-tokens:
-  strategy: "truncate"
-  max_len: 512
-  stride: 128
-
 mlflow:
   # Demo runs are plumbing checks, not experiments. Keep them out of the
   # tracked experiment so they never contaminate the real comparison.
   tracking_uri: "file:./mlruns"
-  azure_ml_uri: null
   experiment: "dementia-undercoding-demo"
 

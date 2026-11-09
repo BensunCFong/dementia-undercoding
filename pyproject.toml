@@ -21,7 +21,6 @@ ml = [
   "datasets>=3.0",
   "accelerate>=1.0",
   "mlflow>=2.16",
-  "azureml-mlflow>=1.57",
 ]
 dev = ["pytest>=8.3", "ruff>=0.6"]
 

@@ -93,36 +93,12 @@ label:
     min_age: 65
     core_range: [0.05, 0.15]
 
-# --- decided after hardware sizing (M1 Max, 32GB unified) ---
-sample:
-  # The dataset keeps every train and test note; nothing is sampled when it
-  # is built. Decided 2026-10-03: fine-tuning may run over several nights with
-  # daytime pauses, so the earlier 50k cap (set to fit one overnight run) is
-  # lifted. n is a cap on TRAINING notes only, applied at training time; the
-  # full test set is always used. null = all. Revisit after timing a batch.
-  n: null
-  seed: 20260821
-
-tokens:
-  # Truncation FIRST, for pipeline reasons rather than accuracy reasons:
-  # chunking multiplies compute 4-8x and forces a pooling decision (max?
-  # mean? any-chunk-positive?) that materially moves the false positive
-  # rate on a ~4% positive class. Get the pipeline green on truncate,
-  # then run chunk as the measured comparison. If the tail carries signal
-  # it will show up there.
-  strategy: "truncate"   # "truncate" or "chunk"
-  max_len: 512
-  stride: 128
-
 mlflow:
     # Local SQLite backend under data/ (gitignored). MLflow 3.x refuses the
   # old file:./mlruns store without an opt-out, so it is not used.
-  # Set azure_ml_uri to log runs to a personal Azure ML workspace instead
-  # (free to create, compute unused).
   # METRICS AND PARAMS ONLY. Never log note text or sample predictions:
   # the DUA prohibits sending clinical text to third-party services.
   tracking_uri: "sqlite:///data/derived/mlflow.db"
-  azure_ml_uri: null
   experiment: "dementia-undercoding"
 
 arm0:
