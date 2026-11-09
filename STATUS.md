@@ -221,8 +221,27 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
       likely to be Documented (aiming for about 20 or more), with weights set alongside the band
       edges; kappa reported with sensitivity and specificity. The 30 pilot reads are development
       only and never pooled with the test reads.
-11. Next: band edges, the random-sample size and the test-read strata; the arm 0 cross-check;
-    test-scoring path; `validator_rx.py` and the age-only arm; `icd_version` and subgroups.
+11. **Week 3 test design, decided 2026-11-09 before test was touched:**
+    - Bands: each arm's test notes ranked and cut at 1x, 2x and 4x the test coded count (about
+      1,940 notes), giving bands 1x / 1-2x / 2-4x. Every uncoded note either arm puts inside 4x is
+      judged, about 8,000 notes and about 30 h of GPU time (frozen judge v4, about 12.7 s and 7 GB
+      per note).
+    - The one test (item 7) is at 2x: the 1x and 1-2x bands together. On validation the one-arm
+      groups there were 389 (LoRA only) and 355 (LightGBM only), against 60 and 43 at 1x; the
+      pilot found all its Documented notes inside 2x and none in 2x-4x.
+    - Random sample below 4x: 1,000 uncoded notes, judged (about 4 h), so the gap rate is an
+      estimate and not only a floor. I read every sample note the judge calls Documented, to
+      confirm it; these reads are separate from the 60 agreement reads.
+    - Agreement reads: 60, stratified 35 from 1x, 15 from 1-2x, 10 from 2-4x, drawn at random
+      within each band with a fixed seed, shuffled, shown by ID only and read blind before I see
+      any judge output. Aim about 20 Documented; reported as they fall, with no topping up.
+      Kappa (Documented vs the rest), sensitivity and specificity reported, with the band mix
+      stated.
+    - Arm scoring on test is a separate step: about 1 h for arms 0, 1, 1b, 2 and age-only, plus
+      about 29 h for arm 3 only if it qualifies under its test rule.
+12. Next: the arm 0 cross-check; test-scoring path (arms 1 and 1b refit on train, LoRA from its
+    saved adapters); `validator_rx.py` and the age-only arm; then the arm 3 decision from the
+    hidden row; `icd_version` and subgroups.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
