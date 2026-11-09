@@ -11,7 +11,7 @@ paths:
   duckdb: "data/derived/cohort.duckdb"
   notes: "data/derived/notes.parquet"     # modelling dataset, from dataset.build()
   scores: "data/derived/scores"          # per-note validation scores from each arm (hadm_id, score)
-
+  judge: "data/derived/judge"            # judge answers, quotes included: note text, data/ only
 files:
   # Filenames relative to the paths above, declared here rather than built
   # by string concatenation in code, so the shard globs are visible.
@@ -178,3 +178,18 @@ arm3:
     n_neg: 2                  # real TRAIN notes without it, and with arm 0 score 0
     max_chars: 1600           # short notes only: about 400 tokens each
     seed: 20261108
+
+judge:
+  # LLM judge for Week 3 (judge.py). Rubric in STATUS.md, decided 2026-11-09 before the judge read any note.
+  model: "qwen3.5-9b"          # model path taken from arm3.models
+  arms:                        # the two gap-set arms: display name -> score file stem
+    LightGBM: "arm1b-lgbm"
+    LoRA main: "arm2-lora-main"
+  port: 8090                   # not arm 3's 8089
+  ctx: 32768                   # tokens: rubric + the longest note kept + the answer
+  max_note_chars: 60000        # longer notes are cut (counted and reported)
+  max_tokens: 512              # answer budget: up to 3 quotes and the verdict
+  timing:
+    n: 50                      # validation notes judged, a fixed random draw
+    depth: 2                   # provisional gap set: top 2x coded count, either arm
+    seed: 20261109
