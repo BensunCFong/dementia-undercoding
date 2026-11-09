@@ -193,10 +193,37 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
    Documented 14 to 12, None 0 to 2: at least 5 of 50 notes), from the evidence format alone.
    Verdicts are sensitive to prompt and format, so the prompt is frozen after the pilot and any
    later change counts as a new judge.
-10. Next: pilot reads (about 30 validation notes, blind, excluding the 50 timing-run notes),
-    watching how often Possible is used; then band edges and the random-sample size;
+10. **Judge pilot and freeze, 2026-11-09** (development on validation; not the reported agreement).
+    30 notes read blind by me (15 from the top 2x pool, 15 from 2x-4x, timing-run notes left
+    out), judged by five prompt versions. After seeing the judge's evidence I revised 5 of my 30
+    reads (a home dementia drug, Aricept, I had missed; two baseline descriptions; two acute
+    cases); both my blind and revised reads are kept. Against my revised reads:
+    v1 13/30 (Documented line kappa 1.00), v2 17/30, v3 26/30 (0.84), v4 25/30 (1.00),
+    v5 22/30 (1.00). Against my blind reads, v4: 22/30, Documented line 0.71.
+    - v3 found the main error: the judge read routine normal-cognition lines ("A&Ox3",
+      "clear and coherent") as grounds for Acute only, because of the rubric's wording.
+    - v4 (my idea): decide in order, Documented first. Fixed a plainly stated dementia that v3
+      under-called (listed with a psychiatric diagnosis).
+    - v5 (my idea, weigh Acute only against Possible using "returned to baseline") was tested
+      against a rule written before it ran (Documented 4/4 with none false, all 13 None kept,
+      Acute only better than 0/3). It failed the third condition and was rejected.
+    - **Frozen: v4** (commit to follow), plus dropping repeated passages in code (llama-server
+      ignores uniqueItems; repeats were common). Any later prompt change is a new judge.
+    - Known weaknesses: v4 never used Acute only in the pilot (my Acute only notes went to
+      Possible); a history of memory loss and an unexplained "poor historian" were read as
+      None; verdicts shift with any prompt change.
+    - Consequences: Acute only and None are reported together as "no chronic impairment
+      documented"; the delirium contrast uses the delirium codes, as the README pre-registered;
+      the sensitivity version (Documented + Possible) is an upper bound, since it takes in some
+      acute cases. An automatic cross-check is added on test: notes where arm 0 finds an
+      explicit, non-negated mention but the judge does not say Documented.
+    - **Test reads changed from 100 to 60, before test was touched:** stratified toward notes
+      likely to be Documented (aiming for about 20 or more), with weights set alongside the band
+      edges; kappa reported with sensitivity and specificity. The 30 pilot reads are development
+      only and never pooled with the test reads.
+11. Next: band edges, the random-sample size and the test-read strata; the arm 0 cross-check;
     test-scoring path; `validator_rx.py` and the age-only arm; `icd_version` and subgroups.
-
+    
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 ## Next
