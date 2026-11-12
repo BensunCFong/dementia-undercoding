@@ -1,9 +1,10 @@
 # Project status
 
-As of 2026-11-08, evening: repo public on GitHub (MIT), 125 tests locally (CI collects 116 and
-skips 1, since it installs only core packages).
+As of 2026-11-11, evening: repo public on GitHub (MIT), 174 tests locally (CI installs only core
+packages, so it collects fewer). Test opened and scored, and the test judge run finished; no test
+metric or judge verdict has been looked at.
 
-## Results so far (validation only; test untouched)
+## Results so far (validation only; no test result seen)
 
 Intervals: 95%, from 2,000 resamples of patients (`python -m dementia_undercoding.compare_arms`).
 Difference = arm minus arm 2 LoRA main, with every arm scored on the same resampled patients.
@@ -93,7 +94,7 @@ matched LoRA main (above).
 - **Validator 1, dementia drug orders** (2026-11-08): design fixed before any arm is scored on
   it; full rules in `docs/explainers.md`. Validation: 193 drug-positive uncoded notes (120
   patients) in the main pool, 92 of them with no explicit mention (the hidden row). Age-only arm
-  as reference. Next: choose the Week 3 gap-set arm, then build `validator_rx.py`.
+  as reference. The Week 3 gap-set arms are chosen (item 4 below); next: build `validator_rx.py`.
 
 - **ICD-10 in train:** train is about 19% ICD-10 (43,298 of 227,130 admissions), because a
   train patient's later admissions follow them into train. Patients never cross splits, so there
@@ -106,7 +107,8 @@ matched LoRA main (above).
 
 ## In progress
 
-Stage 3, piece 3: every arm on validation, then a fair comparison.
+Stage 3 done on validation (every arm, fair comparison). Now Week 3 on test: judge run finished,
+my blind reads, then the remaining choices before any test result is computed.
 
 1. **Arm 2 head + tail finished** 2026-11-08 (about 6 h). Stop rule, written before the result:
    chunking only if head + tail beat LoRA main with its difference interval entirely above zero.
@@ -285,19 +287,36 @@ Stage 3, piece 3: every arm on validation, then a fair comparison.
       prints progress only. Seeds fixed in config before test was touched.
     - 2026-11-09: test opened (2117c67). The first scoring run was stopped by hand after arm 0, to
       move it to another window; arm 0's test files were deleted and the loop restarted. Arm 0 is
-      a fixed regex (same scores on rerun) and no metric was computed or seen.      
+      a fixed regex (same scores on rerun) and no metric was computed or seen.
+    - 2026-11-09: test scored, all five arms (0, 1, 1b, LoRA main, LoRA head + tail), 41,266
+      notes. Arms 1, 1b and both LoRA runs reproduced their saved validation scores with a gap of
+      exactly 0.0.
+    - 2026-11-09: test draw (`test-draw`). 1,924 coded notes. Pool of uncoded notes inside either
+      arm's 4x: 8,140 (619 in 1x, 2,533 in 1-2x, 4,988 in 2-4x). Random sample: 1,000 of the
+      31,202 uncoded notes below 4x. My reads filled 35 / 15 / 10. To judge: 9,140 notes.
+    - 2026-11-09 to 2026-11-11: test judge run (`test-judge`), finished the evening of
+      2026-11-11. The Mac's weekday 22:00 sleep schedule paused it for about 20 h (resumed
+      cleanly). It printed progress only; no verdict has been looked at.
+    - Pushed fd435e8..5d9da78 on 2026-11-09; CI result not yet checked.
 14. Next:
-    `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
-    `icd_version` and subgroups. The cross-check's command (run on the judge's test answers,
-    the reads draw) is wired in with the test judge run.
-    
+    - My 60 blind agreement reads (`data/derived/judge/test/reads.csv`), saved before any judge
+      output is opened.
+    - Build the post-judge commands: the arm 0 cross-check run on the judge's test answers and
+      its reads draw (`cross_check` and `draw_cross_check_reads` exist in `judge.py`, but no
+      command runs them on test yet), the agreement compare, and the draw of the sample's
+      Documented notes for my reads.
+    - `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
+      `icd_version` and subgroups.
+    - Then test results, computed once.
+
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 ## Next
 
-- Arm 3 goes to test only under the rule in "In progress" above
-- Test set scored once, for every arm, after all choices are final (no test-scoring path exists
-  yet: arms 1 and 1b refit on train, LoRA loads its saved adapters)
+- Arm 3 goes to test only under the rule in "In progress" above (about 29 h of GPU if it
+  qualifies)
+- Test results computed once, after all choices are final (scores already written, item 13)
+- Week 4: README results with no note text, model card, write-up, Dockerfile
 
 ## Public since 2026-11-08
 
