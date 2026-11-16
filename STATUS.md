@@ -1,6 +1,6 @@
 # Project status
 
-As of 2026-11-15: repo public on GitHub (MIT), 174 tests locally (CI installs only core
+As of 2026-11-16: repo public on GitHub (MIT), 183 tests locally (CI installs only core
 packages, so it collects fewer). Test opened and scored, the test judge run finished, and my 60
 blind reads are done and frozen; no test metric or judge verdict has been looked at.
 
@@ -306,7 +306,7 @@ my blind reads, then the remaining choices before any test result is computed.
       reported against these reads. Any later revision goes in `reads.csv` and is reported
       beside them, never in their place (as in the pilot).
     - Agreement compare (`judge.py test-agreement`), decided 2026-11-15 before any judge answer
-      was opened. Built now; locked (`judge.test.agreement.allowed`) and run only after the
+      was opened. Built now; locked (`judge.test.output_allowed`) and run only after the
       validator, age-only arm, arm 3 decision, `icd_version` and subgroup rules are written,
       with the subgroup rules covering both a judge pass and a fail. Reason: its 4x4 table is an
       early look at the gap rate, so it must not steer those choices.
@@ -321,11 +321,19 @@ my blind reads, then the remaining choices before any test result is computed.
         rejected: it scores a failure as agreement whenever my read is not Documented.
       - Per band: counts only (notes, no answer, same verdict, Documented by me / the judge /
         both), labelled description. No kappa per band: 10 notes in 2-4x is too few.
-    - Build the remaining post-judge commands: the arm 0 cross-check run on the judge's test
-      answers and its reads draw (`cross_check` and `draw_cross_check_reads` exist in
-      `judge.py`, but no command runs them on test yet), and the draw of the sample's
-      Documented notes for my reads.
-    - `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
+    - One lock for all judge output on test, decided 2026-11-16: `judge.test.output_allowed`
+      shuts the agreement compare, the cross-check and the sample's Documented draw alike, and
+      is opened in one commit once the choices above are written. Reason: running the other two
+      also opens judge answers (the sample's Documented count is the gap-rate estimate below
+      4x), the same reason the compare was locked.
+    - Built 2026-11-16, locked, not run:
+      - `judge.py test-cross-check`: arm 0's cross-check (item 12) on the pool and the sample,
+        counts per set, then up to 50 flagged notes drawn for my reads, blind to the verdict.
+      - `judge.py test-sample-reads`: every sample note the judge called Documented,
+        shuffled (seed 83), for me to confirm (item 11).
+      - Each writes a key, the notes and a blank reads sheet under `data/`, and refuses to
+        redraw. The two read lists stay separate, as items 11 and 12 say: the sample reads
+        confirm the judge's positives and are not meant to be blind to its verdict.    - `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
       `icd_version` and subgroups.
     - Then test results, computed once.
 

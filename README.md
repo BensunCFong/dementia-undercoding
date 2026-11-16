@@ -306,13 +306,15 @@ python -m dementia_undercoding.score_test arm1b     # also arm0, arm1, arm2-main
 python -m dementia_undercoding.judge test-draw      # bands, random sample, the blind reads
 python -m dementia_undercoding.judge test-judge     # about 32 h of GPU time here; resumes after a stop
 python -m dementia_undercoding.judge test-agreement # my reads against the judge
+python -m dementia_undercoding.judge test-cross-check # arm 0 cross-check, and the flagged notes I read
+python -m dementia_undercoding.judge test-sample-reads # the sample notes the judge called Documented
 ```
 
 - `score_test` runs only once `test_scoring.allowed` is set in its own commit, writes scores and
   no metric, and refuses to overwrite a score file.
 - `test-draw` refuses to redraw.
-- `test-agreement` runs only once `judge.test.agreement.allowed` is set in its own commit.
-
+- `test-agreement`, `test-cross-check` and `test-sample-reads` run only once
+  `judge.test.output_allowed` is set in its own commit; the last two refuse to redraw.
 ## Stack
 
 Local, on an M1 Max with 32 GB of unified memory.

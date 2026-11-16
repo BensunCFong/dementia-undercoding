@@ -653,11 +653,13 @@ def bootstrap_agreement(df: pd.DataFrame, n_boot: int, seed: int) -> pd.DataFram
                          for _ in range(n_boot)])
 
 
-def check_agreement_unlocked(acfg: dict) -> None:
-    if acfg.get("allowed") is not True:
-        raise PermissionError("the agreement compare is locked until the remaining choices are written "
-                              "(STATUS item 14): set judge.test.agreement.allowed to true in its own commit")
-
+def check_output_unlocked(tcfg: dict) -> None:
+    """One switch for every look at the judge's test answers: the agreement compare, the
+    cross-check and the sample's Documented draw (decided 2026-11-16). Shut until the remaining
+    choices are written (STATUS item 14); opened in its own commit, which records when."""
+    if tcfg.get("output_allowed") is not True:
+        raise PermissionError("the judge's test output is locked until the remaining choices are written "
+                              "(STATUS item 14): set judge.test.output_allowed to true in its own commit")
 
 def file_sha256(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -673,7 +675,7 @@ def run_test_agreement(config_path: str | Path = "config/config.yaml", reads: st
     cfg = load_config(config_path)
     tcfg = cfg["judge"]["test"]
     acfg = tcfg["agreement"]
-    check_agreement_unlocked(acfg)
+    check_output_unlocked(tcfg)
     out = test_dir(cfg)
     path = out / reads
     df = agreement_rows(pd.read_parquet(out / "reads-key.parquet"), read_my_reads(path, "read_id"),
@@ -737,6 +739,106 @@ def run_test_agreement(config_path: str | Path = "config/config.yaml", reads: st
     print("\nper band (description only; every count but 'notes' is among answered notes):")
     print(per_band.to_string())
     return df
+
+
+# --- the cross-check and the sample's Documented notes on test (items 11 and 12) ----------
+# Both open the judge's answers, so both sit behind the same switch as the agreement compare.
+# Each writes a key (read ID -> note), the notes to read and a blank sheet for my verdicts,
+# all under data/. Each runs once: an existing key is refused, never overwritten.
+
+
+def draw_sample_documented(answers: pd.DataFrame, sample_ids, seed: int) -> pd.DataFrame:
+    """Every note in the random sample that the judge called Documented, in a random order.
+    Returns read_id (S01, S02, ...) and hadm_id."""
+    keep = answers["hadm_id"].isin(sample_ids) & (answers["verdict"] == "Documented")
+    ids = np.sort(answers.loc[keep, "hadm_id"].to_numpy())          # fixed order before the shuffle
+    ids = np.random.default_rng(seed).permutation(ids)
+    return pd.DataFrame({"read_id": [f"S{i + 1:02d}" for i in range(len(ids))],
+                         "hadm_id": ids.astype("int64")})
+
+
+def refuse_redraw(path: Path) -> None:
+    if path.exists():
+        raise FileExistsError(f"{path} exists: this draw is done. Delete it on purpose to redraw.")
+
+
+def judged_test(out: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The bands table and the judge's answers, after checking that every note sent to the
+    judge has exactly one answer row (None = no valid answer) and nothing else does."""
+    bands = pd.read_parquet(out / "bands.parquet")
+    answers = load_test_answers(out / "parts")
+    meant, got = set(pd.read_parquet(out / "to-judge.parquet")["hadm_id"]), set(answers["hadm_id"])
+    if got != meant:
+        raise ValueError(f"the judge's answers do not match to-judge.parquet: "
+                         f"{len(meant - got):,} missing, {len(got - meant):,} extra")
+    return bands, answers
+
+
+def write_reads(out: Path, name: str, key: pd.DataFrame, texts: pd.Series, max_chars: int) -> None:
+    """{name}-key.parquet (read ID -> note), {name}-notes.txt (each note cut where the judge's
+    was) and {name}-reads.csv (blank sheet: read_id, verdict, comment)."""
+    key.to_parquet(out / f"{name}-key.parquet", index=False)
+    with open(out / f"{name}-notes.txt", "w") as f:
+        for r in key.itertuples():
+            f.write(f"{'=' * 70}\n{r.read_id}\n{'=' * 70}\n\n{texts[r.hadm_id][:max_chars]}\n\n")
+    key[["read_id"]].assign(verdict="", comment="").to_csv(out / f"{name}-reads.csv", index=False)
+
+
+def run_test_cross_check(config_path: str | Path = "config/config.yaml") -> pd.DataFrame:
+    """Arm 0's cross-check on the judge's test answers, and the draw of the flagged notes I
+    read, blind to the verdict (STATUS item 12). Prints counts only."""
+    cfg = load_config(config_path)
+    tcfg, ccfg = cfg["judge"]["test"], cfg["judge"]["cross_check"]
+    check_output_unlocked(tcfg)
+    out = test_dir(cfg)
+    refuse_redraw(out / "cross-check-key.parquet")
+    bands, answers = judged_test(out)
+    sets = {"pool": bands.loc[bands["band"].notna(), "hadm_id"],
+            "sample": bands.loc[bands["in_sample"], "hadm_id"]}
+    texts = load_whole_notes(answers["hadm_id"].tolist(), config_path)
+    window, max_chars = cfg["arm0"]["window"], cfg["judge"]["max_note_chars"]
+    checks = {name: cross_check(answers[answers["hadm_id"].isin(ids)], texts, window, max_chars)
+              for name, ids in sets.items()}
+    reads = draw_cross_check_reads(checks, ccfg["cap"], ccfg["seed"])
+    every = pd.concat([c.assign(set=name) for name, c in checks.items()], ignore_index=True)
+    every.to_parquet(out / "cross-check.parquet", index=False)
+    write_reads(out, "cross-check", reads, texts.set_index("hadm_id")["text"], max_chars)
+
+    print("arm 0 cross-check on the text the judge saw (STATUS item 12):")
+    for name, c in checks.items():
+        print(f"  {name}: {len(c):,} judged; no valid answer {int(c['verdict'].isna().sum()):,}; "
+              f"certain diagnosis mention {int((c['n_certain'] > 0).sum()):,}; "
+              f"flagged {int(c['flagged'].sum()):,}; "
+              f"drug only (counted, never read) {int(c['drug_only'].sum()):,}")
+    print(f"my reads: {len(reads)} (at most {ccfg['cap']}), by set:",
+          reads["set"].value_counts().reindex(list(sets), fill_value=0).to_dict())
+    print(f"read:  {out / 'cross-check-notes.txt'}\n"
+          f"fill:  {out / 'cross-check-reads.csv'}  (verdict: {', '.join(VERDICTS)})")
+    return every
+
+
+def run_test_sample_reads(config_path: str | Path = "config/config.yaml") -> pd.DataFrame:
+    """Every note in the random sample below 4x that the judge called Documented, for me to
+    confirm (STATUS item 11). Prints counts only."""
+    cfg = load_config(config_path)
+    tcfg = cfg["judge"]["test"]
+    check_output_unlocked(tcfg)
+    out = test_dir(cfg)
+    refuse_redraw(out / "sample-documented-key.parquet")
+    bands, answers = judged_test(out)
+    sample = bands.loc[bands["in_sample"], "hadm_id"]
+    reads = draw_sample_documented(answers, sample, tcfg["sample_reads_seed"])
+    texts = (load_whole_notes(reads["hadm_id"].tolist(), config_path).set_index("hadm_id")["text"]
+             if len(reads) else pd.Series(dtype=str))
+    write_reads(out, "sample-documented", reads, texts, cfg["judge"]["max_note_chars"])
+
+    judged = answers[answers["hadm_id"].isin(sample)]
+    print(f"random sample below the last band: {len(judged):,} judged; "
+          f"Documented {len(reads):,}; no valid answer {int(judged['verdict'].isna().sum()):,}")
+    print(f"read:  {out / 'sample-documented-notes.txt'}\n"
+          f"fill:  {out / 'sample-documented-reads.csv'}  (verdict: {', '.join(VERDICTS)})")
+    return reads
+
 
 def run_timing(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> pd.DataFrame:
     """The judge on a fixed random sample of validation gap-set notes. Prints counts only.
@@ -922,6 +1024,8 @@ if __name__ == "__main__":
         "test-draw": run_test_draw,
         "test-judge": run_test_judge,
         "test-agreement": run_test_agreement,
+        "test-cross-check": run_test_cross_check,
+        "test-sample-reads": run_test_sample_reads,
     }
     parser = argparse.ArgumentParser(description="The LLM judge (Week 3).")
     parser.add_argument("command", choices=list(commands), help="which step to run")

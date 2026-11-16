@@ -21,15 +21,17 @@ from dementia_undercoding.judge import (
     band_patient_weights,
     bands_table,
     certain_mentions,
-    check_agreement_unlocked,
     check_evidence,
+    check_output_unlocked,
     cross_check,
     draw_cross_check_reads,
+    draw_sample_documented,
     draw_test_reads,
     flagged,
     judge_messages,
     judge_schema,
     judged_so_far,
+    judged_test,
     load_test_answers,
     locate,
     passages,
@@ -449,8 +451,35 @@ def test_agreement_rows_keeps_no_answer_and_fails_on_gaps():
         agreement_rows(key, mine.iloc[:2], answers, patients)
 
 
-def test_agreement_compare_is_locked_until_allowed():
-    for acfg in ({}, {"allowed": False}, {"allowed": "true"}):
+def test_judge_output_is_locked_until_allowed():
+    for tcfg in ({}, {"output_allowed": False}, {"output_allowed": "true"}):
         with pytest.raises(PermissionError, match="locked"):
-            check_agreement_unlocked(acfg)
-    check_agreement_unlocked({"allowed": True})
+            check_output_unlocked(tcfg)
+    check_output_unlocked({"output_allowed": True})
+
+
+def test_sample_documented_takes_only_documented_sample_notes():
+    answers = pd.DataFrame({"hadm_id": [1, 2, 3, 4, 5, 6],
+                            "verdict": ["Documented", "Possible", None, "Documented", "Documented", "None"]})
+    sample = [1, 2, 3, 5, 6]                       # 4 is Documented but in the pool, not the sample
+    got = draw_sample_documented(answers, sample, seed=7)
+    assert list(got.columns) == ["read_id", "hadm_id"]
+    assert sorted(got["hadm_id"]) == [1, 5]
+    assert list(got["read_id"]) == ["S01", "S02"]
+    assert got.equals(draw_sample_documented(answers.iloc[::-1], sample, seed=7))   # row order: no effect
+    assert draw_sample_documented(answers, [2, 3, 6], seed=7).empty
+
+
+def test_judged_test_fails_when_answers_and_to_judge_differ(tmp_path):
+    (tmp_path / "parts").mkdir()
+    pd.DataFrame({"hadm_id": [1, 2], "band": ["1x", None], "in_sample": [False, True]}).to_parquet(
+        tmp_path / "bands.parquet")
+    pd.DataFrame({"hadm_id": [1, 2]}).to_parquet(tmp_path / "to-judge.parquet")
+    pd.DataFrame({"hadm_id": [1], "verdict": ["None"], "rejected": [False]}).to_parquet(
+        tmp_path / "parts" / "part-00000.parquet")
+    with pytest.raises(ValueError, match="1 missing, 0 extra"):
+        judged_test(tmp_path)
+    pd.DataFrame({"hadm_id": [2], "verdict": [None], "rejected": [False]}).to_parquet(
+        tmp_path / "parts" / "part-00001.parquet")
+    bands, answers = judged_test(tmp_path)
+    assert sorted(answers["hadm_id"]) == [1, 2]
