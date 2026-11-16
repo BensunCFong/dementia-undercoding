@@ -6,6 +6,7 @@ Nothing here prints or logs note text. Anything that holds note text is saved un
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -565,6 +566,178 @@ def run_test_judge(config_path: str | Path = "config/config.yaml") -> None:
 # --- the timing run (validation, development only) --------------------------------------
 
 
+# --- the test agreement compare (decided 2026-11-15, before any judge answer was opened) --
+# My 60 blind reads (reads-blind.csv, frozen 85aaa97) against the judge, Documented vs the
+# rest. Locked until the remaining choices are written (STATUS item 14), so the judge's
+# verdicts on these notes cannot steer them. Prints counts and agreement only, no note text.
+
+
+def load_test_answers(parts: Path) -> pd.DataFrame:
+    """The judge's saved test answers: hadm_id, verdict (None = no valid answer), rejected."""
+    answers = pd.concat([pd.read_parquet(f, columns=["hadm_id", "verdict", "rejected"])
+                         for f in sorted(parts.glob("part-*.parquet"))], ignore_index=True)
+    if not answers["hadm_id"].is_unique:
+        raise ValueError("a note was judged twice in the part files")
+    return answers
+
+
+def agreement_rows(key: pd.DataFrame, mine: pd.DataFrame, answers: pd.DataFrame,
+                   patients: pd.DataFrame) -> pd.DataFrame:
+    """One row per read: read_id, hadm_id, band, mine, subject_id, judge (None = no valid
+    answer), rejected. Fails if the reads and the key differ or a read note was never judged."""
+    if set(key["read_id"]) != set(mine["read_id"]):
+        raise ValueError("my reads and the reads key list different read IDs")
+    df = (key.merge(mine, on="read_id", validate="one_to_one")
+             .merge(patients[["hadm_id", "subject_id"]], on="hadm_id", validate="one_to_one")
+             .merge(answers.rename(columns={"verdict": "judge"}), on="hadm_id", how="left",
+                    validate="one_to_one", indicator=True))
+    if len(df) != len(key):
+        raise ValueError("some read notes are not in the test set")
+    never = df.loc[df["_merge"] == "left_only", "read_id"].tolist()
+    if never:
+        raise ValueError(f"never judged: {', '.join(never)}")
+    return df.drop(columns="_merge")
+
+
+def _ratio(num: float, den: float) -> float:
+    return num / den if den > 0 else np.nan
+
+
+def agreement(mine_doc, judge_doc, weight=None) -> dict:
+    """Documented vs the rest, the judge against me: kappa, sensitivity, specificity.
+
+    weight: how many times each note counts (a bootstrap redraw); None = once each.
+    A figure that cannot be computed (kappa when both sides call every note the same way,
+    sensitivity with no Documented read of mine) is NaN, never a guess.
+    """
+    a, b = np.asarray(mine_doc, dtype=bool), np.asarray(judge_doc, dtype=bool)
+    w = np.ones(len(a)) if weight is None else np.asarray(weight, dtype=float)
+    total = w.sum()
+    p_same = w[a == b].sum() / total
+    p_mine, p_judge = w[a].sum() / total, w[b].sum() / total
+    p_chance = p_mine * p_judge + (1 - p_mine) * (1 - p_judge)
+    return {"kappa": _ratio(p_same - p_chance, 1 - p_chance),
+            "sensitivity": _ratio(w[a & b].sum(), w[a].sum()),
+            "specificity": _ratio(w[~a & ~b].sum(), w[~a].sum())}
+
+
+def worst_case(df: pd.DataFrame) -> dict:
+    """agreement() with every note the judge did not answer counted as a disagreement with
+    my read: a miss where I said Documented, a false Documented where I did not."""
+    mine_doc = (df["mine"] == "Documented").to_numpy()
+    judge_doc = np.where(df["judge"].isna(), ~mine_doc, (df["judge"] == "Documented").to_numpy())
+    return agreement(mine_doc, judge_doc)
+
+
+def band_patient_weights(band, patient, rng: np.random.Generator) -> np.ndarray:
+    """One redraw. In each band, that band's patients are drawn with replacement, as many as
+    the band has, so every redraw keeps the 35 / 15 / 10 design. Each note's weight = how often
+    its patient was drawn in its band (a patient with notes in two bands is drawn in each)."""
+    band, patient = np.asarray(band), np.asarray(patient)
+    weight = np.zeros(len(band))
+    for b in sorted(set(band)):
+        rows = np.flatnonzero(band == b)
+        ids, which = np.unique(patient[rows], return_inverse=True)
+        drawn = np.bincount(rng.integers(0, len(ids), len(ids)), minlength=len(ids))
+        weight[rows] = drawn[which]
+    return weight
+
+
+def bootstrap_agreement(df: pd.DataFrame, n_boot: int, seed: int) -> pd.DataFrame:
+    """agreement() on n_boot redraws of patients within bands. One row per redraw."""
+    rng = np.random.default_rng(seed)
+    mine_doc = (df["mine"] == "Documented").to_numpy()
+    judge_doc = (df["judge"] == "Documented").to_numpy()
+    band, patient = df["band"].to_numpy(), df["subject_id"].to_numpy()
+    return pd.DataFrame([agreement(mine_doc, judge_doc, band_patient_weights(band, patient, rng))
+                         for _ in range(n_boot)])
+
+
+def check_agreement_unlocked(acfg: dict) -> None:
+    if acfg.get("allowed") is not True:
+        raise PermissionError("the agreement compare is locked until the remaining choices are written "
+                              "(STATUS item 14): set judge.test.agreement.allowed to true in its own commit")
+
+
+def file_sha256(path: str | Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def run_test_agreement(config_path: str | Path = "config/config.yaml", reads: str = "reads-blind.csv",
+                       label: str = "dementia_core") -> pd.DataFrame:
+    """My reads against the judge on test (STATUS items 8, 11 and 14). Prints counts only.
+
+    Notes the judge did not answer are left out of the main figures and listed with their
+    cause; when there are any, a worst case (each counted as a disagreement) is printed beside.
+    """
+    cfg = load_config(config_path)
+    tcfg = cfg["judge"]["test"]
+    acfg = tcfg["agreement"]
+    check_agreement_unlocked(acfg)
+    out = test_dir(cfg)
+    path = out / reads
+    df = agreement_rows(pd.read_parquet(out / "reads-key.parquet"), read_my_reads(path, "read_id"),
+                        load_test_answers(out / "parts"), test_set(config_path, label))
+    failed = df["judge"].isna()
+    answered = df[~failed]
+    bands = list(tcfg["reads"])
+
+    print(f"reads: {path.name}, sha256 {file_sha256(path)}")
+    print(f"{len(df)} reads by band:", df["band"].value_counts().reindex(bands, fill_value=0).to_dict())
+    per_patient = df.groupby("subject_id").agg(notes=("read_id", "size"), bands=("band", "nunique"))
+    print(f"patients: {len(per_patient)}; with more than one read note: "
+          f"{int((per_patient['notes'] > 1).sum())}; in more than one band: "
+          f"{int((per_patient['bands'] > 1).sum())}\n")
+
+    shown = df["judge"].fillna("(no answer)")
+    cols = [*VERDICTS, *(["(no answer)"] if failed.any() else [])]
+    table = pd.crosstab(df["mine"], shown).reindex(index=list(VERDICTS), columns=cols, fill_value=0)
+    print("rows = my read, columns = the judge")
+    print(table.to_string(), "\n")
+
+    print(f"no valid judge answer: {int(failed.sum())} of {len(df)} reads"
+          + (", left out of the figures below" if failed.any() else ""))
+    for r in df[failed].itertuples():
+        cause = ("refused as too long for the context" if r.rejected
+                 else f"answer cut off (not valid JSON within {cfg['judge']['max_tokens']} tokens)")
+        print(f"  {r.read_id} (my read: {r.mine}): {cause}")
+
+    point = agreement(answered["mine"] == "Documented", answered["judge"] == "Documented")
+    reps = bootstrap_agreement(answered, acfg["n_boot"], acfg["seed"])
+    ci = reps.quantile([(1 - acfg["ci"]) / 2, (1 + acfg["ci"]) / 2])     # NaN redraws left out
+    me_doc, judge_doc = answered["mine"] == "Documented", answered["judge"] == "Documented"
+    print(f"\nDocumented vs the rest, {len(answered)} answered notes; {acfg['ci']:.0%} intervals from "
+          f"{acfg['n_boot']:,} redraws of patients within bands:")
+    for name, detail in [("kappa", ""),
+                         ("sensitivity", f" (the judge found {int((me_doc & judge_doc).sum())} "
+                                         f"of my {int(me_doc.sum())} Documented)"),
+                         ("specificity", f" (the judge left {int((~me_doc & ~judge_doc).sum())} "
+                                         f"of my {int((~me_doc).sum())} others alone)")]:
+        print(f"  {name} {point[name]:.2f} [{ci[name].iloc[0]:.2f}, {ci[name].iloc[1]:.2f}]{detail}")
+    undefined = reps.isna().sum()
+    print(f"  redraws where a figure could not be computed (left out of its interval): "
+          f"{undefined.to_dict()}")
+    trusted = point["kappa"] >= acfg["min_kappa"]
+    print(f"judge {'TRUSTED' if trusted else 'NOT TRUSTED'}: kappa {point['kappa']:.2f} "
+          f"{'>=' if trusted else 'below'} {acfg['min_kappa']} (point estimate, STATUS item 8)")
+    if failed.any():
+        worst = worst_case(df)
+        print(f"worst case, each no-answer counted as a disagreement with my read: kappa "
+              f"{worst['kappa']:.2f}, sensitivity {worst['sensitivity']:.2f}, "
+              f"specificity {worst['specificity']:.2f}")
+
+    flags = pd.DataFrame({
+        "band": df["band"], "notes": 1, "no answer": failed,
+        "same verdict": df["mine"] == df["judge"],
+        "Documented: me": (df["mine"] == "Documented") & ~failed,
+        "Documented: judge": df["judge"] == "Documented",
+    })
+    flags["Documented: both"] = flags["Documented: me"] & flags["Documented: judge"]
+    per_band = flags.groupby("band").sum().reindex(bands, fill_value=0)
+    print("\nper band (description only; every count but 'notes' is among answered notes):")
+    print(per_band.to_string())
+    return df
+
 def run_timing(config_path: str | Path = "config/config.yaml", label: str = "dementia_core") -> pd.DataFrame:
     """The judge on a fixed random sample of validation gap-set notes. Prints counts only.
 
@@ -660,15 +833,16 @@ def run_pilot_judge(config_path: str | Path = "config/config.yaml") -> None:
           f"answers saved, not shown")
 
 
-def read_pilot_reads(path: str | Path) -> pd.DataFrame:
-    """pilot_id and my verdict, spelled as in VERDICTS. Fails on any blank or unknown verdict."""
+def read_my_reads(path: str | Path, id_col: str) -> pd.DataFrame:
+    """id_col (pilot_id or read_id) and my verdict, spelled as in VERDICTS. Fails on any
+    blank or unknown verdict. keep_default_na=False: pandas would read "None" as missing."""
     reads = pd.read_csv(path, dtype=str, keep_default_na=False)
     canon = {v.lower(): v for v in VERDICTS}
     mine = reads["verdict"].str.strip().str.lower().map(canon)
     if mine.isna().any():
-        bad = ", ".join(reads.loc[mine.isna(), "pilot_id"])
+        bad = ", ".join(reads.loc[mine.isna(), id_col])
         raise ValueError(f"no valid verdict ({', '.join(VERDICTS)}) for: {bad}")
-    return pd.DataFrame({"pilot_id": reads["pilot_id"], "mine": mine})
+    return pd.DataFrame({id_col: reads[id_col], "mine": mine})
 
 
 def run_pilot_compare(config_path: str | Path = "config/config.yaml", reads: str = "pilot-reads.csv",
@@ -683,7 +857,7 @@ def run_pilot_compare(config_path: str | Path = "config/config.yaml", reads: str
     key = pd.read_parquet(pdir / "pilot-key.parquet")
     judge = pd.read_parquet(pdir / answers)[["hadm_id", "verdict"]]
     print(f"reads: {reads}; judge answers: {answers}")
-    df = (key.merge(read_pilot_reads(pdir / reads), on="pilot_id", validate="one_to_one")
+    df = (key.merge(read_my_reads(pdir / reads, "pilot_id"), on="pilot_id", validate="one_to_one")
              .merge(judge.rename(columns={"verdict": "judge"}), on="hadm_id", validate="one_to_one"))
     df["judge"] = df["judge"].fillna("(no answer)")
 
@@ -747,13 +921,17 @@ if __name__ == "__main__":
         "pilot-compare": run_pilot_compare,
         "test-draw": run_test_draw,
         "test-judge": run_test_judge,
+        "test-agreement": run_test_agreement,
     }
     parser = argparse.ArgumentParser(description="The LLM judge (Week 3).")
     parser.add_argument("command", choices=list(commands), help="which step to run")
-    parser.add_argument("--reads", default="pilot-reads.csv", help="pilot-compare: my reads file")
+    parser.add_argument("--reads", default=None, help="pilot-compare / test-agreement: my reads file "
+                        "(default pilot-reads.csv / reads-blind.csv)")
     parser.add_argument("--answers", default="pilot-judge.parquet", help="pilot-compare: judge answers file")
     args = parser.parse_args()
     if args.command == "pilot-compare":
-        run_pilot_compare(reads=args.reads, answers=args.answers)
+        run_pilot_compare(reads=args.reads or "pilot-reads.csv", answers=args.answers)
+    elif args.command == "test-agreement":
+        run_test_agreement(reads=args.reads or "reads-blind.csv")
     else:
         commands[args.command]()

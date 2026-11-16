@@ -212,6 +212,12 @@ judge:
     order_seed: 73             # judging order is shuffled, so a stop leaves a fair mix
     save_every: 25             # notes per saved part file
     seconds_per_note: 12.7     # from the validation timing run; for the estimate only
+    agreement:                 # my 60 blind reads vs the judge; decided 2026-11-15, before any judge answer was opened
+      allowed: false           # locked until the remaining choices are written (STATUS item 14); open in its own commit
+      min_kappa: 0.6           # the judge is trusted if kappa (Documented vs the rest) is at least this (item 8)
+      n_boot: 2000             # redraws of patients within each band, so the 35 / 15 / 10 mix is kept
+      seed: 20261115           # any fixed number, set before the compare ran
+      ci: 0.95  
   cross_check:                 # arm 0 cross-check, STATUS item 12 (decided 2026-11-09, before test)
     cap: 50                    # flagged notes I read at most; a random draw above that
     seed: 21                   # any fixed number, set before test was touched

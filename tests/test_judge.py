@@ -9,14 +9,19 @@ import duckdb
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import cohen_kappa_score
 
 from dementia_undercoding.judge import (
     VERDICTS,
+    agreement,
+    agreement_rows,
     arm_bands,
     ask,
     band_names,
+    band_patient_weights,
     bands_table,
     certain_mentions,
+    check_agreement_unlocked,
     check_evidence,
     cross_check,
     draw_cross_check_reads,
@@ -25,10 +30,12 @@ from dementia_undercoding.judge import (
     judge_messages,
     judge_schema,
     judged_so_far,
+    load_test_answers,
     locate,
     passages,
-    read_pilot_reads,
+    read_my_reads,
     whole_notes,
+    worst_case,
 )
 
 # Invented notes. The judge must get the whole note, hospital course included.
@@ -221,13 +228,13 @@ def test_capitals_format_uses_fallback_headings():
 
 
 
-def test_read_pilot_reads_normalises_and_checks(tmp_path):
+def test_read_my_reads_normalises_and_checks(tmp_path):
     path = tmp_path / "reads.csv"
     path.write_text("pilot_id,verdict,comment\nP01, documented ,\nP02,Acute only,odd one\nP03,NONE,\n")
-    assert read_pilot_reads(path)["mine"].tolist() == ["Documented", "Acute only", "None"]
-    path.write_text("pilot_id,verdict,comment\nP01,Documented,\nP02,,\nP03,maybe,\n")
-    with pytest.raises(ValueError, match="P02, P03"):
-        read_pilot_reads(path)
+    assert read_my_reads(path, "pilot_id")["mine"].tolist() == ["Documented", "Acute only", "None"]
+    path.write_text("read_id,verdict,comment\nT01,Documented,\nT02,,\nT03,maybe,\n")
+    with pytest.raises(ValueError, match="T02, T03"):
+        read_my_reads(path, "read_id")
 
 # --- the arm 0 cross-check (invented sentences) ------------------------------------------
 
@@ -370,3 +377,80 @@ def test_judged_so_far_reads_part_files(tmp_path):
     pd.DataFrame({"hadm_id": [3, 1]}).to_parquet(tmp_path / "parts" / "part-00000.parquet")
     pd.DataFrame({"hadm_id": [7]}).to_parquet(tmp_path / "parts" / "part-00001.parquet")
     assert judged_so_far(tmp_path / "parts") == {1, 3, 7}
+
+
+
+# --- the test agreement compare (invented verdicts) ---------------------------------------
+
+
+def test_agreement_matches_sklearn_and_counts():
+    rng = np.random.default_rng(0)
+    a, b, w = rng.random(200) < 0.3, rng.random(200) < 0.4, rng.integers(0, 3, 200)
+    assert agreement(a, b, w)["kappa"] == pytest.approx(cohen_kappa_score(a, b, sample_weight=w))
+    assert agreement(a, b)["kappa"] == pytest.approx(cohen_kappa_score(a, b))
+    got = agreement([True, True, False, False, False], [True, False, True, False, False])
+    assert got["sensitivity"] == 0.5 and got["specificity"] == pytest.approx(2 / 3)
+
+
+def test_agreement_is_nan_when_it_cannot_be_computed():
+    got = agreement([False, False], [False, False])            # nobody says Documented
+    assert np.isnan(got["kappa"]) and np.isnan(got["sensitivity"]) and got["specificity"] == 1.0
+
+
+def test_worst_case_counts_each_failure_as_a_disagreement():
+    df = pd.DataFrame({"mine": ["Documented", "None", "Documented", "None"],
+                       "judge": [None, None, "Documented", "None"]})
+    got = worst_case(df)                    # a miss, a false Documented, a hit, a correct None
+    assert got["sensitivity"] == 0.5 and got["specificity"] == 0.5
+
+
+def test_band_patient_weights_keep_bands_and_patients_together():
+    band = np.array(["1x"] * 4 + ["2-4x"] * 3)
+    patient = np.array([1, 1, 2, 3, 3, 4, 5])     # patient 1 has two notes; patient 3 is in both bands
+    rng = np.random.default_rng(5)
+    for _ in range(50):
+        w = band_patient_weights(band, patient, rng)
+        assert w[0] == w[1]                        # one patient's notes are drawn together
+        assert w[0] + w[2] + w[3] == 3             # 1x: 3 patients drawn, 3 draws
+        assert w[4:].sum() == 3                    # 2-4x: 3 patients drawn, 3 draws
+    assert np.array_equal(band_patient_weights(band, patient, np.random.default_rng(1)),
+                          band_patient_weights(band, patient, np.random.default_rng(1)))
+
+
+def test_load_test_answers_reads_parts_and_rejects_repeats(tmp_path):
+    parts = tmp_path / "parts"
+    parts.mkdir()
+    pd.DataFrame({"hadm_id": [3, 1], "verdict": ["None", None], "rejected": [False, True],
+                  "seconds": [1.0, 2.0]}).to_parquet(parts / "part-00000.parquet")
+    pd.DataFrame({"hadm_id": [7], "verdict": ["Documented"], "rejected": [False],
+                  "seconds": [1.0]}).to_parquet(parts / "part-00001.parquet")
+    got = load_test_answers(parts)
+    assert got["hadm_id"].tolist() == [3, 1, 7] and list(got.columns) == ["hadm_id", "verdict", "rejected"]
+    assert got["verdict"].isna().tolist() == [False, True, False]
+    pd.DataFrame({"hadm_id": [1], "verdict": ["None"], "rejected": [False],
+                  "seconds": [1.0]}).to_parquet(parts / "part-00002.parquet")
+    with pytest.raises(ValueError, match="judged twice"):
+        load_test_answers(parts)
+
+
+def test_agreement_rows_keeps_no_answer_and_fails_on_gaps():
+    key = pd.DataFrame({"read_id": ["T01", "T02", "T03"], "hadm_id": [11, 12, 13],
+                        "band": ["1x", "1x", "2-4x"]})
+    mine = pd.DataFrame({"read_id": ["T02", "T01", "T03"], "mine": ["None", "Documented", "Possible"]})
+    patients = pd.DataFrame({"hadm_id": [11, 12, 13, 14], "subject_id": [1, 1, 2, 3]})
+    answers = pd.DataFrame({"hadm_id": [13, 11, 12, 99], "verdict": ["None", "Documented", None, "None"],
+                            "rejected": [False, False, True, False]})
+    df = agreement_rows(key, mine, answers, patients).set_index("read_id")
+    assert df.loc["T01", ["mine", "judge", "subject_id"]].tolist() == ["Documented", "Documented", 1]
+    assert pd.isna(df.loc["T02", "judge"]) and df.loc["T02", "rejected"]
+    with pytest.raises(ValueError, match="never judged: T03"):
+        agreement_rows(key, mine, answers[answers["hadm_id"] != 13], patients)
+    with pytest.raises(ValueError, match="different read IDs"):
+        agreement_rows(key, mine.iloc[:2], answers, patients)
+
+
+def test_agreement_compare_is_locked_until_allowed():
+    for acfg in ({}, {"allowed": False}, {"allowed": "true"}):
+        with pytest.raises(PermissionError, match="locked"):
+            check_agreement_unlocked(acfg)
+    check_agreement_unlocked({"allowed": True})

@@ -299,15 +299,31 @@ my blind reads, then the remaining choices before any test result is computed.
       cleanly). It printed progress only; no verdict has been looked at.
     - Pushed fd435e8..5d9da78 on 2026-11-09; CI result not yet checked.
 14. Next:
-        - Done 2026-11-15: my 60 blind agreement reads, finished before any judge output was opened
+    - Done 2026-11-15: my 60 blind agreement reads, finished before any judge output was opened
       and frozen before any compare code existed: a read-only copy,
       `data/derived/judge/test/reads-blind.csv`, SHA-256
       `cf2889f5914978985e11321e33609b05a2888eed19b608b1754ced720afa2f7d`. Agreement is
       reported against these reads. Any later revision goes in `reads.csv` and is reported
       beside them, never in their place (as in the pilot).
-    - Build the post-judge commands: the arm 0 cross-check run on the judge's test answers and
-      its reads draw (`cross_check` and `draw_cross_check_reads` exist in `judge.py`, but no
-      command runs them on test yet), the agreement compare, and the draw of the sample's
+    - Agreement compare (`judge.py test-agreement`), decided 2026-11-15 before any judge answer
+      was opened. Built now; locked (`judge.test.agreement.allowed`) and run only after the
+      validator, age-only arm, arm 3 decision, `icd_version` and subgroup rules are written,
+      with the subgroup rules covering both a judge pass and a fail. Reason: its 4x4 table is an
+      early look at the gap rate, so it must not steer those choices.
+      - Documented vs the rest, on `reads-blind.csv`; the judge is trusted if kappa is at least
+        0.6 (point estimate, item 8).
+      - Interval: 2,000 redraws of patients within each band, so the 35 / 15 / 10 mix is kept;
+        95% percentile; seed 20261115. The same redraws give sensitivity and specificity
+        intervals. Redraws where a figure cannot be computed are counted and printed.
+      - A read note with no valid judge answer is left out of the main figures (the pass rule
+        uses them) and listed with its read ID and cause. Beside them, a worst case counts each
+        failure as a disagreement with my read. Counting a failure as "not Documented" was
+        rejected: it scores a failure as agreement whenever my read is not Documented.
+      - Per band: counts only (notes, no answer, same verdict, Documented by me / the judge /
+        both), labelled description. No kappa per band: 10 notes in 2-4x is too few.
+    - Build the remaining post-judge commands: the arm 0 cross-check run on the judge's test
+      answers and its reads draw (`cross_check` and `draw_cross_check_reads` exist in
+      `judge.py`, but no command runs them on test yet), and the draw of the sample's
       Documented notes for my reads.
     - `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
       `icd_version` and subgroups.
