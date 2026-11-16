@@ -1,8 +1,8 @@
 # Project status
 
-As of 2026-11-11, evening: repo public on GitHub (MIT), 174 tests locally (CI installs only core
-packages, so it collects fewer). Test opened and scored, and the test judge run finished; no test
-metric or judge verdict has been looked at.
+As of 2026-11-15: repo public on GitHub (MIT), 174 tests locally (CI installs only core
+packages, so it collects fewer). Test opened and scored, the test judge run finished, and my 60
+blind reads are done and frozen; no test metric or judge verdict has been looked at.
 
 ## Results so far (validation only; no test result seen)
 
@@ -299,8 +299,12 @@ my blind reads, then the remaining choices before any test result is computed.
       cleanly). It printed progress only; no verdict has been looked at.
     - Pushed fd435e8..5d9da78 on 2026-11-09; CI result not yet checked.
 14. Next:
-    - My 60 blind agreement reads (`data/derived/judge/test/reads.csv`), saved before any judge
-      output is opened.
+        - Done 2026-11-15: my 60 blind agreement reads, finished before any judge output was opened
+      and frozen before any compare code existed: a read-only copy,
+      `data/derived/judge/test/reads-blind.csv`, SHA-256
+      `cf2889f5914978985e11321e33609b05a2888eed19b608b1754ced720afa2f7d`. Agreement is
+      reported against these reads. Any later revision goes in `reads.csv` and is reported
+      beside them, never in their place (as in the pilot).
     - Build the post-judge commands: the arm 0 cross-check run on the judge's test answers and
       its reads draw (`cross_check` and `draw_cross_check_reads` exist in `judge.py`, but no
       command runs them on test yet), the agreement compare, and the draw of the sample's
