@@ -1,6 +1,7 @@
 """The LLM judge (Week 3): reads whole discharge notes for flagged admissions and gives a verdict.
 
-The arms read only the history sections; the judge reads the whole note (rubric in STATUS.md).
+The arms read only the history sections. Judge v4 reads the whole note (STATUS item 8);
+judge v6 reads a trimmed note (STATUS item 20).
 Nothing here prints or logs note text. Anything that holds note text is saved under data/ only.
 """
 
@@ -100,6 +101,92 @@ JUDGE_SYSTEM = (
     "the note denies impairment or describes it in someone else. Then give the verdict."
 )
 
+# --- judge v6 (STATUS item 20, decided 2026-11-18 after v4 failed on test) ---------------
+# A new judge, not a fix: v4 above stays frozen word for word. v6 reads a trimmed note and
+# works from a rewritten rubric, every point decided one at a time. Any later change to
+# either is another new judge.
+
+JUDGE_SYSTEM_V6 = (
+    "You check part of a hospital discharge summary for one thing: does it document that the "
+    "patient had chronic cognitive impairment before this admission? You do not diagnose. You "
+    "decide only what the note documents. Only the patient's own cognition counts: dementia or "
+    "memory problems in anyone else is never evidence about the patient.\n\n"
+    "Check these places in particular: the past medical history, the hospital course (including "
+    "any active, chronic or transitional issues), the discharge diagnosis, the mental status line "
+    "under discharge condition, and the neurological and mental status parts of the admission and "
+    "discharge exams.\n\n"
+    "Decide in this order and stop at the first verdict that fits:\n\n"
+    "1. Documented, if either:\n"
+    "   a. The note states dementia for the patient (any type: Alzheimer's, vascular, Lewy body, "
+    "frontotemporal, major neurocognitive disorder), anywhere, even in a list. A stated conclusion "
+    "counts: \"likely\", \"probable\", \"presumed\", \"known\" or \"history of\" dementia.\n"
+    "   b. The note describes cognitive impairment from before this admission: a stated impaired "
+    "cognitive baseline (for example, oriented to fewer than three at baseline, or confused at "
+    "baseline; a baseline about speech or mobility alone does not count), or a decline in memory "
+    "or thinking over about a month or more before admission, reported by anyone, that the note "
+    "does not put down to an acute cause.\n\n"
+    "2. Possible, if the note raises a cognitive concern but does not meet 1:\n"
+    "   - a bare label with no baseline and no time span (\"memory loss\", \"forgetful\", "
+    "\"cognitive issues\"), or mild cognitive impairment;\n"
+    "   - dementia raised as an open question (\"possible\", \"concern for\", \"rule out\", "
+    "\"may have\", \"suspected\", \"evaluate for\");\n"
+    "   - confusion put down only to a long-standing condition (a psychiatric illness, old "
+    "strokes);\n"
+    "   - confusion still present at discharge (for example \"Confused - sometimes\" or "
+    "\"Confused - always\", or reduced orientation at discharge), even when an acute cause was "
+    "named; delirium not resolved when the note was written;\n"
+    "   - a patient called a poor historian with no other reason given (such as sedation, "
+    "intubation, language or hearing).\n\n"
+    "3. Acute only, if confusion during this admission is explained by an acute cause (infection, "
+    "sepsis, low oxygen, a drug, overdose or withdrawal, a metabolic or salt problem, trauma, or a "
+    "new stroke, bleed or brain mass), or delirium or encephalopathy is named, and the confusion "
+    "resolved or is not shown to persist at discharge. A long-standing psychiatric illness in the "
+    "background does not change this. If the patient died, the cause decides.\n\n"
+    "4. None: anything else. No cognitive impairment is documented, or it is denied, ruled out, "
+    "or describes someone else. Normal cognition is None. A dementia drug named with nothing else "
+    "said is not evidence. Decline in function from physical illness (weakness, frailty, being "
+    "bedridden) is not evidence unless the note ties it to memory or thinking.\n\n"
+    "First give up to three passages from the note that your verdict rests on, each exactly as it "
+    "appears. For None, give passages only if the note denies impairment or describes it in "
+    "someone else. Then give the verdict."
+)
+
+# Trim B, frozen 2026-11-18 after measuring it on the validation 4x pool: v6 reads these
+# template sections whole, in note order. Dropped: the header block, results and labs,
+# medications, Family History, procedures and instructions. No keyword rescue of dropped lines.
+TRIM_KEEP = ("Chief Complaint", "History of Present Illness", "Past Medical History", "Social History",
+             "Physical Exam", "Brief Hospital Course", "Discharge Disposition", "Discharge Diagnosis",
+             "Discharge Condition")
+
+
+def trim(note: str) -> str:
+    """Judge v6's input: the TRIM_KEEP sections of a cleaned note, each under its heading.
+
+    Only template headings start a section, so sub-headings inside one ("Neuro:", "PMH:") stay
+    with it. A section that appears twice is kept twice (text.sections keeps only the first);
+    an empty one is left out. A note with none of these headings is returned whole.
+    """
+    matches = list(HEADING.finditer(note))
+    if not any(m.group(1) in TRIM_KEEP for m in matches):
+        return note
+    kept = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(note)
+        body = note[m.end():end].strip()
+        if m.group(1) in TRIM_KEEP and body:
+            kept.append(f"{m.group(1)}:\n{body}")
+    return "\n\n".join(kept)
+
+
+JUDGES = {"v4": (JUDGE_SYSTEM, False), "v6": (JUDGE_SYSTEM_V6, True)}   # version: (rubric, reads the trim)
+
+
+def judge_text(note: str, version: str, max_chars: int) -> tuple[str, bool]:
+    """(the text a judge version reads, whether it was cut): v4 the whole note, v6 the trim,
+    then the character cut."""
+    text = trim(note) if JUDGES[version][1] else note
+    return text[:max_chars], len(text) > max_chars
+
 # The judge does not retype its evidence: it picks passages, and llama-server allows only
 # passages that are in the note (decided 2026-11-09 after the timing run, before the pilot).
 # A sentence ends at . ! or ? followed by space and a capital, digit or opening bracket.
@@ -156,10 +243,10 @@ def judge_schema(note_passages: list[str]) -> dict:
     }
 
 
-def judge_messages(note: str) -> list[dict]:
-    """Chat messages for one note: the rubric, then the note. No examples."""
+def judge_messages(note: str, version: str = "v4") -> list[dict]:
+    """Chat messages for one note: the version's rubric, then the note. No examples."""
     return [
-        {"role": "system", "content": JUDGE_SYSTEM},
+        {"role": "system", "content": JUDGES[version][0]},
         {"role": "user", "content": f"Discharge summary:\n{note}"},
     ]
 
@@ -319,23 +406,24 @@ def gap_pool(cfg: dict, val: pd.DataFrame, label: str, depth: float) -> set[int]
     return pool
 
 
-def judge_notes(cfg: dict, texts: pd.DataFrame) -> pd.DataFrame:
+def judge_notes(cfg: dict, texts: pd.DataFrame, version: str = "v4") -> pd.DataFrame:
     """The judge on each note (columns hadm_id, text), one at a time. One row per note."""
-    return pd.DataFrame(list(judge_rows(cfg, texts)))
+    return pd.DataFrame(list(judge_rows(cfg, texts, version)))
 
 
-def judge_rows(cfg: dict, texts: pd.DataFrame) -> Iterator[dict]:
+def judge_rows(cfg: dict, texts: pd.DataFrame, version: str = "v4") -> Iterator[dict]:
     """The judge on each note (columns hadm_id, text), one at a time: yields one row per note
-    as soon as it is judged, so a long run can save as it goes. One server for the whole run."""
+    as soon as it is judged, so a long run can save as it goes. One server for the whole run.
+    texts holds whole notes; judge_text() gives each version its own input, and chars, cut,
+    n_passages and the evidence check all refer to that input."""
     jcfg = cfg["judge"]
     model_path = cfg["arm3"]["models"][jcfg["model"]]["path"]
     with LlamaServer(model_path, port=jcfg["port"], ctx=jcfg["ctx"]) as server:
-        for hadm_id, note in zip(texts["hadm_id"], texts["text"], strict=True):
-            cut = len(note) > jcfg["max_note_chars"]
-            note = note[: jcfg["max_note_chars"]]
+        for hadm_id, whole in zip(texts["hadm_id"], texts["text"], strict=True):
+            note, cut = judge_text(whole, version, jcfg["max_note_chars"])
             t = time.perf_counter()
             note_passages = passages(note)
-            answer, timings = ask(server.url, judge_messages(note), jcfg["max_tokens"],
+            answer, timings = ask(server.url, judge_messages(note, version), jcfg["max_tokens"],
                                   judge_schema(note_passages))
             seconds = time.perf_counter() - t
             picked = answer["evidence"] if answer else []

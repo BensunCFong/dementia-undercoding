@@ -1,5 +1,6 @@
 """The LLM judge, on invented notes."""
 
+import hashlib
 import io
 import json
 import urllib.error
@@ -12,6 +13,8 @@ import pytest
 from sklearn.metrics import cohen_kappa_score
 
 from dementia_undercoding.judge import (
+    JUDGE_SYSTEM,
+    JUDGE_SYSTEM_V6,
     VERDICTS,
     agreement,
     agreement_rows,
@@ -30,12 +33,14 @@ from dementia_undercoding.judge import (
     flagged,
     judge_messages,
     judge_schema,
+    judge_text,
     judged_so_far,
     judged_test,
     load_test_answers,
     locate,
     passages,
     read_my_reads,
+    trim,
     whole_notes,
     worst_case,
 )
@@ -121,6 +126,92 @@ def test_messages_are_rubric_then_note():
     assert msgs[1]["content"].endswith("Invented note.")
 
 
+# JUDGE_SYSTEM as frozen at ef7d6a2
+V4_SHA256 = "2cd23486819fce01d5f8cd815fbd5cc9b3e2be3e94f5c79f3c7778757fa18150"
+
+
+def test_v4_rubric_is_frozen_and_stays_the_default():
+    assert hashlib.sha256(JUDGE_SYSTEM.encode()).hexdigest() == V4_SHA256
+    assert judge_messages("Invented note.")[0]["content"] == JUDGE_SYSTEM
+    v6 = judge_messages("Invented note.", "v6")
+    assert v6[0]["content"] == JUDGE_SYSTEM_V6
+    assert v6[1]["content"] == judge_messages("Invented note.")[1]["content"]    # same note message
+
+
+# Invented, in the template's shape: a header block, every kind of section trim() keeps or
+# drops, sub-headings inside sections, an empty section and a repeated one.
+TRIM_NOTE = """Name: Unit No: Sex: F
+Chief Complaint:
+Fall
+History of Present Illness:
+Per son, more forgetful over the past year.
+Past Medical History:
+PMH:
+- Hypertension
+Social History:
+Family History:
+Mother had dementia.
+Physical Exam:
+ADMISSION EXAM:
+Neuro: oriented to self only.
+Pertinent Results:
+Head CT to evaluate for dementia.
+Brief Hospital Course:
+Treated for a urinary infection.
+Medications on Admission:
+Donepezil 10 mg daily
+Physical Exam:
+DISCHARGE EXAM:
+Neuro: oriented to self only.
+Discharge Condition:
+Mental Status: Confused - sometimes.
+Discharge Instructions:
+You were admitted after a fall."""
+
+
+def test_trim_keeps_the_chosen_sections_whole_in_note_order():
+    assert trim(TRIM_NOTE) == """Chief Complaint:
+Fall
+
+History of Present Illness:
+Per son, more forgetful over the past year.
+
+Past Medical History:
+PMH:
+- Hypertension
+
+Physical Exam:
+ADMISSION EXAM:
+Neuro: oriented to self only.
+
+Brief Hospital Course:
+Treated for a urinary infection.
+
+Physical Exam:
+DISCHARGE EXAM:
+Neuro: oriented to self only.
+
+Discharge Condition:
+Mental Status: Confused - sometimes."""
+
+
+def test_trim_leaves_a_note_without_kept_headings_whole():
+    note = "HISTORY OF PRESENT ILLNESS:\nAn older dictated note.\nFamily History:\nNoncontributory."
+    assert trim(note) == note                    # a dropped heading alone does not start a trim
+
+
+def test_every_passage_of_the_trim_is_in_the_whole_note():
+    for p in passages(trim(TRIM_NOTE)):
+        assert locate(TRIM_NOTE, p)[0] == "exact"
+
+
+def test_judge_text_trims_for_v6_then_cuts():
+    assert judge_text(TRIM_NOTE, "v4", 60_000) == (TRIM_NOTE, False)
+    assert judge_text(TRIM_NOTE, "v6", 60_000) == (trim(TRIM_NOTE), False)
+    assert judge_text(TRIM_NOTE, "v6", 20) == (trim(TRIM_NOTE)[:20], True)
+    with pytest.raises(KeyError):
+        judge_text(TRIM_NOTE, "v5", 60_000)
+        
 class FakeResponse(io.BytesIO):
     def __enter__(self):
         return self
