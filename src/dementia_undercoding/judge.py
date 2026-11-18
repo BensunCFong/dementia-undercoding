@@ -667,7 +667,7 @@ def file_sha256(path: str | Path) -> str:
 
 def run_test_agreement(config_path: str | Path = "config/config.yaml", reads: str = "reads-blind.csv",
                        label: str = "dementia_core") -> pd.DataFrame:
-    """My reads against the judge on test (STATUS items 8, 11 and 14). Prints counts only.
+    """My reads against the judge on test (STATUS items 8, 11 and 15). Prints counts only.
 
     Notes the judge did not answer are left out of the main figures and listed with their
     cause; when there are any, a worst case (each counted as a disagreement) is printed beside.

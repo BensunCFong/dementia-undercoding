@@ -25,7 +25,7 @@ It is also deliberate practice. I had trained models in guided labs and deployed
 in production, but had not chosen a question, built the dataset and decided for myself whether
 the result means anything. Everything here runs on my own hardware, in my own time.
 
-## Where it stands (2026-11-15)
+## Where it stands (2026-11-18)
 
 | Stage | State |
 | --- | --- |
@@ -33,17 +33,19 @@ the result means anything. Everything here runs on my own hardware, in my own ti
 | Every arm scored on validation, compared with a paired patient bootstrap | Done, results below |
 | Week 3 rules: gap sets, judge, my reads, the one test | Written before test was touched |
 | Test scored by every frozen arm | Done 2026-11-09, **no metric computed or seen** |
-| Judge run on 9,140 test notes | Done 2026-11-11, **no verdict seen** |
+| Judge v4 run on 9,140 test notes | Done 2026-11-11 |
 | My 60 blind reads of test notes | Done and frozen 2026-11-15 |
-| Agreement compare, judge against my reads | Built, **locked** |
 | Drug-order validator, age-only arm | Built, run on validation 2026-11-18 |
 | ICD era per admission | Built 2026-11-18, as a lookup |
 | Subgroup rules | Written 2026-11-18, before any judge output was opened |
+| Agreement compare, judge v4 against my reads | Run 2026-11-18: **kappa 0.44, below 0.6, so judge v4 is not trusted** |
+| Judge v6: trimmed input, new rubric, three-model bake-off | Decided 2026-11-18, after v4's result; not built |
 | Test results | Not computed. They are computed once, after every choice above is fixed |
 
-No test result exists yet, by design. The order matters more than the speed: every rule that
-could bend a result is written down, with its date, before the number it governs is seen.
-`STATUS.md` is that record; this page is the summary.
+The one test figure opened so far is the judge's agreement with my reads, and judge v4 failed it
+(below). The order matters more than the speed: every rule that could bend a result is written
+down, with its date, before the number it governs is seen. `STATUS.md` is that record; this page
+is the summary.
 
 ## Results so far: validation only
 
@@ -175,9 +177,27 @@ since by group it mostly tracks how common dementia is. A group gets a figure on
 "fewer than 11". Estimates and intervals only, no tests. ICD era cannot be a subgroup: test is
 all ICD-10. Full rules in `STATUS.md`, item 19.
 
-**Still to do before any test result.** Open the judge-output lock, in its own commit. Every
-choice it was waiting on (drug-order validator, age-only arm, arm 3, ICD era, subgroups) is now
-written; under its rule no prompted model goes to test.
+## The judge fails its agreement rule (2026-11-18)
+
+**Result.** Once every choice above was written, the judge-output lock was opened. Against my 60
+blind reads, kappa on Documented was 0.44 [0.12, 0.71], below 0.6. Sensitivity 0.42: of the 12
+notes I read as Documented, the judge said Documented for 5 and Possible for the other 7.
+Specificity 0.96 (46 of 48). By the rules above, judge v4's verdicts are not used, the one test
+is reported as not run, and subgroups show only the coded rate. This result stays first,
+whatever comes after it.
+
+**What went wrong**, checked afterwards (patterns only, no note text). The passages were split
+correctly. In long notes the judge did not pick the line naming dementia. It called described
+decline Possible, because v4's wording let the two verdicts overlap. And it passed over confusion
+still present at discharge.
+
+**Judge v6, decided after that result.** A second attempt, reported as one, after v4. It reads a
+trimmed note (history, exam, hospital course and discharge sections; no labs, medications or
+family history) and works from a rubric rewritten point by point. Three local models
+(Qwen3.5-9B, Gemma 4 12B, Granite 4.2 8B) are compared on the 90 notes I have already read,
+under a rule written before the run. My 60 test reads have been seen beside v4's answers, so
+they can no longer measure a judge: the winner is checked against fresh blind test reads
+instead. Details in `STATUS.md`, item 20.
 
 ## Pre-registered: separating dementia from delirium
 
@@ -223,8 +243,9 @@ yet.
 - **Note coverage.** About 65% of admissions have a discharge summary at all.
 - **One training run.** LoRA was trained once. The bootstrap covers luck in which patients were
   drawn, not luck in training.
-- **The judge is a model.** It is trusted only as far as my 60 reads support, and its verdicts
-  shifted with small prompt changes during development. That is why it was frozen.
+- **The judge is a model.** It is trusted only as far as my blind reads support, and its verdicts
+  shifted with small prompt changes during development. Judge v4 failed that check on test; v6
+  was designed after seeing why, so only fresh blind reads can measure it fairly.
 - **Drug orders mean treated dementia.** A low rate on the validator is weak evidence against an
   arm, and donepezil is also used off-label for mild cognitive impairment.
 - **One reader.** The blind reads are mine alone; there is no second reader.
@@ -236,7 +257,7 @@ Any of these, reported as readily as a positive finding:
 - The coding gap is small, and MIMIC coding is better than expected.
 - The fine-tuned model finds no more hidden dementia than LightGBM, or than the regex.
 - The gap set is mostly delirium once the validators are applied.
-- The judge fails its agreement rule, and the gap rate rests on 60 notes.
+- The judge fails its agreement rule, and the gap rate rests on 60 notes. (Judge v4 did, 2026-11-18.)
 
 ---
 

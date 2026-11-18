@@ -2,12 +2,12 @@
 
 As of 2026-11-18: repo public on GitHub (MIT), 196 tests locally (CI installs only core
 packages, so it collects fewer). Test opened and scored, the test judge run finished, and my 60
-blind reads are done and frozen; no test metric or judge verdict has been looked at. The drug
-validator is built and run on validation; arm 3 does not go to test. The subgroup rules are
-written (item 19), so every choice before test results is fixed; next is opening the
-judge-output lock.
+blind reads are done and frozen. Every choice before test results was written (items 14-19),
+then the judge-output lock was opened: judge v4 failed its agreement rule (kappa 0.44, item
+20), so its verdicts are not used. No arm's test metric has been looked at. Next: judge v6, a
+second attempt reported after v4's failure (item 20).
 
-## Results so far (validation only; no test result seen)
+## Results so far (validation only; no test arm result seen)
 
 Intervals: 95%, from 2,000 resamples of patients (`python -m dementia_undercoding.compare_arms`).
 Difference = arm minus arm 2 LoRA main, with every arm scored on the same resampled patients.
@@ -146,9 +146,9 @@ Reading, against the rules written before the run:
 
 ## In progress
 
-Stage 3 done on validation (every arm, fair comparison). Week 3 on test: judge run finished, my
-blind reads done, and every choice before any test result is written (items 14-19). Next: open
-the judge-output lock.
+Stage 3 done on validation (every arm, fair comparison). Week 3 on test: judge v4 failed its
+agreement rule (item 20). Next: judge v6, developed on the 90 notes I have already read, then
+run on test and checked against fresh blind reads.
 
 1. **Arm 2 head + tail finished** 2026-11-08 (about 6 h). Stop rule, written before the result:
    chunking only if head + tail beat LoRA main with its difference interval entirely above zero.
@@ -436,11 +436,100 @@ the judge-output lock.
       coded for dementia more often than ICD-9 ones, 5.4% against 3.5% (2,046 of 37,704
       against 5,859 of 165,107), and 9.5% against 7.4% at 65 and over. Confounded: a train
       patient's ICD-10 admissions are their later ones, further into follow-up and older.
+20. **Judge v4 fails on test, 2026-11-18.** The lock was opened in its own commit (adf524f) and
+    the agreement compare run on `reads-blind.csv`. Every read note had a valid judge answer; 60
+    patients, none read twice.
+    - Kappa, Documented against the rest: **0.44 [0.12, 0.71], below 0.6, so the judge is not
+      trusted.** Sensitivity 0.42 (5 of my 12 Documented; the other 7 it called Possible),
+      specificity 0.96 (46 of 48).
+    - My read (rows) against the judge, in the order Documented / Possible / Acute only / None:
+      Documented 5 / 7 / 0 / 0; Possible 0 / 17 / 1 / 4; Acute only 1 / 9 / 2 / 4; None
+      1 / 2 / 0 / 7. Same verdict on 31 of 60.
+    - Per band, Documented by me / the judge / both (description): 1x 11 / 6 / 5; 1-2x
+      1 / 1 / 0; 2-4x 0 / 0 / 0.
+    - By the rules written before (items 8 and 19): v4's verdicts are not used, the one test
+      (item 7) is reported as not run, and by group only the coded rate is shown. This result
+      is reported first and in full, whatever a later judge does. The cross-check and the
+      sample reads (item 17) have not been run.
+
+    **What went wrong** (checked after the result; patterns only, no note text):
+    - No bug in passage splitting. In the 4 misses whose note names dementia, that line was
+      among the passages the judge could pick, and it never picked it. These were long notes
+      (158-286 passages); in 4 hits it did pick the line (75-159 passages).
+    - In the other misses the judge saw the decline and said Possible. v4's wording overlapped:
+      "memory loss over months" under Documented, "history of memory problems" under Possible.
+    - Confusion still present at discharge was passed over. The discharge "Mental Status:
+      Confused" line is in 24 of the 60 notes, and the judge picked it in 4. Three of the 4
+      Possible reads it called None have confusion lasting to discharge; in one it picked that
+      line and still said None.
+    - Reading the side by side, I found 3 of my blind reads I would now read differently (a
+      memory-loss line in the history I passed over; two Acute only reads). `reads-blind.csv`
+      is unchanged (item 14).
+
+    **Judge v6, decided 2026-11-18 after the v4 result.** A new judge, chosen after a failure on
+    test was seen, so it is reported as a second attempt, after v4's result. My 60 test reads
+    have now been seen beside v4's answers: from here they are development notes and cannot
+    measure a new judge.
+    - **Input, trim B (frozen).** The judge reads only Chief Complaint, History of Present
+      Illness, Past Medical History, Social History, Physical Exam, Brief Hospital Course,
+      Discharge Disposition, Discharge Diagnosis and Discharge Condition: whole sections,
+      repeats kept; a note with none of these headings stays whole. Dropped: results and labs,
+      medications, Family History, procedures, instructions. No keyword rescue of dropped
+      lines. This replaces item 8's whole-note input for v6; I still read whole notes.
+      On the validation 4x pool (3,395 notes): passages per note, median 140 to 72 (90th
+      percentile 211 to 115); 53% of the text kept. Notes losing every certain dementia
+      mention (arm 0's rules): 66 of 436. 56 of these are Family History, a relative that arm
+      0's clause rule takes for the patient ("Mother: dementia"), so about 10 (2.6%) are the
+      patient's own, mostly in results (the reason given for a scan). Side effect: the
+      cross-check (item 12, whole note) will flag family-history lines.
+    - **Rubric, decided one point at a time (my decisions):**
+      1. A drug name alone is not evidence, for the judge or my reads; drug-only notes are
+         counted separately. This keeps the judge independent of the drug validator, and
+         reverses the pilot's reading of home Aricept (item 10).
+      2. Dementia named with a word of conclusion (likely, probable, presumed, known, history
+         of) is Documented; with an open question (possible, concern for, rule out, may have,
+         suspected) it is Possible. Arm 0 counts "probable" as uncertain, so the two differ
+         there.
+      3. Documented: impairment from before admission, either a stated impaired cognitive
+         baseline (non-verbal alone does not count) or decline in memory or thinking over
+         about a month or more, not put down to an acute cause. A bare label (memory loss,
+         forgetful) or MCI is Possible.
+      4. Acute only: confusion this admission with an acute cause (infection, sepsis, hypoxia,
+         a drug, metabolic, trauma, a new stroke, bleed or mass) or a named delirium, and no
+         sign it lasts to discharge. Possible: no clear cause or timing; put down only to a
+         long-standing condition (psychiatric illness, old strokes) without point 3's baseline
+         or span; confusion still present at discharge ("Confused - sometimes", reduced
+         orientation) with no earlier baseline; delirium not resolved. If the patient died,
+         the cause decides.
+      5. Physical decline is not evidence unless the note ties it to memory or thinking. An
+         unexplained "poor historian" is Possible. Anyone else's dementia is never evidence.
+      The prompt points to the sections to read (the discharge mental status line among
+      them), with no keyword list.
+    - **Bake-off, three local 4-bit models:** Qwen3.5-9B (v4's model), Gemma 4 12B (Google's
+      own QAT Q4_0 file) and Granite 4.2 8B (IBM's own Q4_K_M file; thinking off). Same trim
+      and prompt; v4's prompt kept frozen beside. Run on the 90 notes I have read (30
+      validation pilot, 60 test). A model passes only if it beats v4's Documented-line
+      agreement on the same notes; the rule for picking among passers is written before any
+      run. These figures flatter every model, since the same notes shaped the rubric, and are
+      never reported as agreement.
+    - **Then:** the winner judges the test pool and sample (9,140 notes) and is checked against
+      20-30 fresh blind test reads, none of them among my 60. Their count and draw, and v6's
+      trust rule, are fixed before that run.
+    - **Phase 2, later, with its own rules written first:** the arms on wider input (adding
+      Chronic and Transitional Issues; never Acute Issues or Discharge Diagnosis, which would
+      leak the label) and LoRA on chunks of about 4 x 512 tokens. Phase 1 results are kept
+      beside, not replaced.
+    - **Open, to decide before v6 touches test:** whether v6's verdicts may feed the gap rate,
+      the one test (item 7) and the subgroups (items 8 and 19 were written for v4); how a gap
+      rate comes from my 60 reads alone (drawn 35 / 15 / 10 by band); whether the cross-check
+      and sample reads run for v4. I chose not to rule now that v6 is the last version.
 
 ## Next
 
-- Open `judge.test.output_allowed` in its own commit; then the agreement compare, the cross-check
-  and the sample's Documented draw, and my reads for the last two
+- Judge v6 (item 20): trim and prompt in code, v4 kept frozen beside; the bake-off rule
+  written; then the bake-off on the 90 notes I have read
+- Before v6 touches test: the open choices in item 20, the fresh reads' count and draw, and
+  v6's trust rule
 - Test results computed once, after all choices are final (scores already written, item 13)
 - Week 4: README results with no note text, model card, write-up, Dockerfile
 
