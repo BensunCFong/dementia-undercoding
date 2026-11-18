@@ -219,7 +219,7 @@ judge:
     order_seed: 73             # judging order is shuffled, so a stop leaves a fair mix
     save_every: 25             # notes per saved part file
     seconds_per_note: 12.7     # from the validation timing run; for the estimate only
-    output_allowed: false      # one switch for every look at the judge's test answers: agreement compare, cross-check,
+    output_allowed: true       # one switch for every look at the judge's test answers: agreement compare, cross-check,
                                # sample's Documented draw (2026-11-16); open in its own commit once items 14-19 are written
     sample_reads_seed: 83      # the order I read the sample's Documented notes in; any fixed number, set before the draw
     agreement:                 # my 60 blind reads vs the judge; decided 2026-11-15, before any judge answer was opened
