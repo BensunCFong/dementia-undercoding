@@ -38,7 +38,7 @@ the result means anything. Everything here runs on my own hardware, in my own ti
 | Agreement compare, judge against my reads | Built, **locked** |
 | Drug-order validator, age-only arm | Built, run on validation 2026-11-18 |
 | ICD era per admission | Built 2026-11-18, as a lookup |
-| Subgroup rules | Not yet written |
+| Subgroup rules | Written 2026-11-18, before any judge output was opened |
 | Test results | Not computed. They are computed once, after every choice above is fixed |
 
 No test result exists yet, by design. The order matters more than the speed: every rule that
@@ -167,10 +167,17 @@ is true, and would be reported as that. Everything else is a descriptive table.
 dementia but the judge did not say Documented (how often does the judge miss the obvious?), and
 every note in the random sample that the judge calls Documented (is the estimate below 4x real?).
 
-**Still to do before any test result.** Write the subgroup rules. The drug-order validator, the
-age-only arm and the ICD-era lookup are built, and under its rule no prompted
-model goes to test. The agreement compare is locked in config until then,
-because its table is an early look at the gap rate and must not steer those choices.
+**Subgroups.** By age (under 75 / 75-84 / 85+), sex, insurance, and race and ethnicity in
+named groups, none pooled to reach a size. The lead figure is the missed share: of notes where
+dementia is coded or confirmed in the text, the share with no code. The gap rate sits beside it,
+since by group it mostly tracks how common dementia is. A group gets a figure only with at least
+30 real patients behind it; smaller groups show counts, and any count from 1 to 10 shows as
+"fewer than 11". Estimates and intervals only, no tests. ICD era cannot be a subgroup: test is
+all ICD-10. Full rules in `STATUS.md`, item 19.
+
+**Still to do before any test result.** Open the judge-output lock, in its own commit. Every
+choice it was waiting on (drug-order validator, age-only arm, arm 3, ICD era, subgroups) is now
+written; under its rule no prompted model goes to test.
 
 ## Pre-registered: separating dementia from delirium
 

@@ -568,7 +568,7 @@ def run_test_judge(config_path: str | Path = "config/config.yaml") -> None:
 
 # --- the test agreement compare (decided 2026-11-15, before any judge answer was opened) --
 # My 60 blind reads (reads-blind.csv, frozen 85aaa97) against the judge, Documented vs the
-# rest. Locked until the remaining choices are written (STATUS item 14), so the judge's
+# rest. Locked until the remaining choices are written (STATUS items 14-19), so the judge's
 # verdicts on these notes cannot steer them. Prints counts and agreement only, no note text.
 
 
@@ -656,10 +656,10 @@ def bootstrap_agreement(df: pd.DataFrame, n_boot: int, seed: int) -> pd.DataFram
 def check_output_unlocked(tcfg: dict) -> None:
     """One switch for every look at the judge's test answers: the agreement compare, the
     cross-check and the sample's Documented draw (decided 2026-11-16). Shut until the remaining
-    choices are written (STATUS item 14); opened in its own commit, which records when."""
+    choices are written (STATUS items 14-19); opened in its own commit, which records when."""
     if tcfg.get("output_allowed") is not True:
         raise PermissionError("the judge's test output is locked until the remaining choices are written "
-                              "(STATUS item 14): set judge.test.output_allowed to true in its own commit")
+                              "(STATUS items 14-19): set judge.test.output_allowed to true in its own commit")
 
 def file_sha256(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()

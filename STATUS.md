@@ -3,7 +3,9 @@
 As of 2026-11-18: repo public on GitHub (MIT), 196 tests locally (CI installs only core
 packages, so it collects fewer). Test opened and scored, the test judge run finished, and my 60
 blind reads are done and frozen; no test metric or judge verdict has been looked at. The drug
-validator is built and run on validation; arm 3 does not go to test.
+validator is built and run on validation; arm 3 does not go to test. The subgroup rules are
+written (item 19), so every choice before test results is fixed; next is opening the
+judge-output lock.
 
 ## Results so far (validation only; no test result seen)
 
@@ -126,9 +128,6 @@ Reading, against the rules written before the run:
   127.0.0.1, 4-bit, few-shot (2 + 2 train notes drawn by rule), scored by P(Yes) on the first
   answer token. Timed on 200 validation notes: no failures, no notes cut. Choice and context in
   `docs/explainers.md`.
-
-## Decided, not yet in code
-
 - **ICD-10 in train:** train is about 19% ICD-10 (43,298 of 227,130 admissions), because a
   train patient's later admissions follow them into train. Patients never cross splits, so there
   is no leakage. Decision: keep and document; docs corrected 2026-11-07.
@@ -141,16 +140,15 @@ Reading, against the rules written before the run:
     `n_codes` matches `diagnoses_icd` for every note.
   - Test is all ICD-10, so the era cannot split any test result. It can only be described
     within train and validation, where version still moves with age and follow-up (a train
-    patient's ICD-10 admissions are their later ones). How it is reported goes in the subgroup
-    rules.
-
+    patient's ICD-10 admissions are their later ones). How it is reported: item 19.
 - **Delta tables via PySpark dropped** (2026-11-08): only a Databricks-skills demonstration;
   DuckDB and Parquet already do the job. Removed from config, PLAN, README and dependencies.
 
 ## In progress
 
-Stage 3 done on validation (every arm, fair comparison). Now Week 3 on test: judge run finished,
-my blind reads, then the remaining choices before any test result is computed.
+Stage 3 done on validation (every arm, fair comparison). Week 3 on test: judge run finished, my
+blind reads done, and every choice before any test result is written (items 14-19). Next: open
+the judge-output lock.
 
 1. **Arm 2 head + tail finished** 2026-11-08 (about 6 h). Stop rule, written before the result:
    chunking only if head + tail beat LoRA main with its difference interval entirely above zero.
@@ -255,9 +253,10 @@ my blind reads, then the remaining choices before any test result is computed.
       Acute only better than 0/3). It failed the third condition and was rejected.
     - **Frozen: v4** (ef7d6a2), plus dropping repeated passages in code (llama-server
       ignores uniqueItems; repeats were common). Any later prompt change is a new judge.
-    - Known weaknesses: v4 never used Acute only in the pilot (my Acute only notes went to
-      Possible); a history of memory loss and an unexplained "poor historian" were read as
-      None; verdicts shift with any prompt change.
+    - Known weaknesses: v4 never used Acute only in the pilot (my 3 revised Acute only reads
+      all went to Possible; blind, 3 of my 4 went to Possible and 1 to None); a history of
+      memory loss and an unexplained "poor historian" were read as None; verdicts shift with
+      any prompt change.
     - Consequences: Acute only and None are reported together as "no chronic impairment
       documented"; the delirium contrast uses the delirium codes, as the README pre-registered;
       the sensitivity version (Documented + Possible) is an upper bound, since it takes in some
@@ -342,52 +341,106 @@ my blind reads, then the remaining choices before any test result is computed.
       2026-11-11. The Mac's weekday 22:00 sleep schedule paused it for about 20 h (resumed
       cleanly). It printed progress only; no verdict has been looked at.
     - Pushed fd435e8..5d9da78 on 2026-11-09; CI result not yet checked.
-14. Next:
-    - Done 2026-11-15: my 60 blind agreement reads, finished before any judge output was opened
-      and frozen before any compare code existed: a read-only copy,
-      `data/derived/judge/test/reads-blind.csv`, SHA-256
-      `cf2889f5914978985e11321e33609b05a2888eed19b608b1754ced720afa2f7d`. Agreement is
-      reported against these reads. Any later revision goes in `reads.csv` and is reported
-      beside them, never in their place (as in the pilot).
-    - Agreement compare (`judge.py test-agreement`), decided 2026-11-15 before any judge answer
-      was opened. Built now; locked (`judge.test.output_allowed`) and run only after the
-      validator, age-only arm, arm 3 decision, `icd_version` and subgroup rules are written,
-      with the subgroup rules covering both a judge pass and a fail. Reason: its 4x4 table is an
-      early look at the gap rate, so it must not steer those choices.
-      - Documented vs the rest, on `reads-blind.csv`; the judge is trusted if kappa is at least
-        0.6 (point estimate, item 8).
-      - Interval: 2,000 redraws of patients within each band, so the 35 / 15 / 10 mix is kept;
-        95% percentile; seed 20261115. The same redraws give sensitivity and specificity
-        intervals. Redraws where a figure cannot be computed are counted and printed.
-      - A read note with no valid judge answer is left out of the main figures (the pass rule
-        uses them) and listed with its read ID and cause. Beside them, a worst case counts each
-        failure as a disagreement with my read. Counting a failure as "not Documented" was
-        rejected: it scores a failure as agreement whenever my read is not Documented.
-      - Per band: counts only (notes, no answer, same verdict, Documented by me / the judge /
-        both), labelled description. No kappa per band: 10 notes in 2-4x is too few.
-    - One lock for all judge output on test, decided 2026-11-16: `judge.test.output_allowed`
-      shuts the agreement compare, the cross-check and the sample's Documented draw alike, and
-      is opened in one commit once the choices above are written. Reason: running the other two
-      also opens judge answers (the sample's Documented count is the gap-rate estimate below
-      4x), the same reason the compare was locked.
-    - Built 2026-11-16, locked, not run:
-      - `judge.py test-cross-check`: arm 0's cross-check (item 12) on the pool and the sample,
-        counts per set, then up to 50 flagged notes drawn for my reads, blind to the verdict.
-      - `judge.py test-sample-reads`: every sample note the judge called Documented,
-        shuffled (seed 83), for me to confirm (item 11).
-      - Each writes a key, the notes and a blank reads sheet under `data/`, and refuses to
-        redraw. The two read lists stay separate, as items 11 and 12 say: the sample reads
-        confirm the judge's positives and are not meant to be blind to its verdict.
-    - Done 2026-11-18: `validator_rx.py` and the age-only arm, run on validation (results at
-      the top); the arm 3 decision (item 3: does not go to test); `icd_version` as a lookup
-      (2026-11-18, "ICD-10 in train" above). Still to write: the subgroup rules.
-    - Then test results, computed once.
-
-Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
+14. **My 60 blind agreement reads, done 2026-11-15:** finished before any judge output was opened
+    and frozen before any compare code existed: a read-only copy,
+    `data/derived/judge/test/reads-blind.csv`, SHA-256
+    `cf2889f5914978985e11321e33609b05a2888eed19b608b1754ced720afa2f7d`. Agreement is
+    reported against these reads. Any later revision goes in `reads.csv` and is reported
+    beside them, never in their place (as in the pilot).
+15. **Agreement compare** (`judge.py test-agreement`), decided 2026-11-15 before any judge answer
+    was opened. Built now; locked (`judge.test.output_allowed`) and run only after the
+    validator, age-only arm, arm 3 decision, `icd_version` and subgroup rules are written,
+    with the subgroup rules covering both a judge pass and a fail. Reason: its 4x4 table is an
+    early look at the gap rate, so it must not steer those choices.
+    - Documented vs the rest, on `reads-blind.csv`; the judge is trusted if kappa is at least
+      0.6 (point estimate, item 8).
+    - Interval: 2,000 redraws of patients within each band, so the 35 / 15 / 10 mix is kept;
+      95% percentile; seed 20261115. The same redraws give sensitivity and specificity
+      intervals. Redraws where a figure cannot be computed are counted and printed.
+    - A read note with no valid judge answer is left out of the main figures (the pass rule
+      uses them) and listed with its read ID and cause. Beside them, a worst case counts each
+      failure as a disagreement with my read. Counting a failure as "not Documented" was
+      rejected: it scores a failure as agreement whenever my read is not Documented.
+    - Per band: counts only (notes, no answer, same verdict, Documented by me / the judge /
+      both), labelled description. No kappa per band: 10 notes in 2-4x is too few.
+16. **One lock for all judge output on test, decided 2026-11-16:** `judge.test.output_allowed`
+    shuts the agreement compare, the cross-check and the sample's Documented draw alike, and
+    is opened in one commit once the choices above are written. Reason: running the other two
+    also opens judge answers (the sample's Documented count is the gap-rate estimate below
+    4x), the same reason the compare was locked.
+17. **Cross-check and sample reads, built 2026-11-16, locked, not run:**
+    - `judge.py test-cross-check`: arm 0's cross-check (item 12) on the pool and the sample,
+      counts per set, then up to 50 flagged notes drawn for my reads, blind to the verdict.
+    - `judge.py test-sample-reads`: every sample note the judge called Documented,
+      shuffled (seed 83), for me to confirm (item 11).
+    - Each writes a key, the notes and a blank reads sheet under `data/`, and refuses to
+      redraw. The two read lists stay separate, as items 11 and 12 say: the sample reads
+      confirm the judge's positives and are not meant to be blind to its verdict.
+18. **Remaining choices, done 2026-11-18:** `validator_rx.py` and the age-only arm, run on
+    validation (results at the top); the arm 3 decision (item 3: does not go to test);
+    `icd_version` as a lookup (2026-11-18, "ICD-10 in train" under Done).
+19. **Subgroup rules, decided 2026-11-18 before any judge output was opened.** Taken one at a
+    time; the counts behind them are codes, ages and recorded values on validation only.
+    - **What is split.** The missed share leads: of the notes coded for dementia or confirmed
+      by the judge, the share with no code. The gap rate (PLAN's metric: the share of uncoded
+      notes the judge confirms) is shown beside it. Reason: by group, the gap rate mostly
+      tracks how common dementia is (age above all), not how well it is coded. The missed
+      share takes every code as correct, since coded notes were never judged; the write-up
+      says so. Both are description only.
+    - **Verdicts.** Both versions by group: Documented (primary, item 8) and Documented +
+      Possible beside it. Each version gets a figure only if its own cases pass the size rule.
+    - **If the judge fails** (kappa below 0.6): no missed share or gap rate by group. My 60
+      reads all sit inside the 4x pool and are too few to split. The coded rate by group is
+      shown instead, labelled as describing coding, not under-coding, with the statement that
+      the subgroup analysis was not run and this rule as the reason.
+    - **Groups**, fixed now and carried unchanged to test:
+      - Age at admission: under 75 / 75-84 / 85+. Chosen from coded dementia patients on
+        validation by 5-year age: under 65 holds 17 coded patients in 11,840 notes, too few
+        for a band; two equal halves would cut at 84. Coded patients on validation: 80 / 176 /
+        250 (a patient can sit in two bands).
+      - Sex as recorded in MIMIC (M / F). Sex and age overlap (more women at 85+); nothing is
+        adjusted for it.
+      - Insurance: Medicare, Medicaid, Private. Other, missing and No charge are pooled and
+        shown as a count only. Insurance largely tracks age: Medicare covers 65 and over, and
+        holds 407 of the 454 coded patients on validation.
+      - Race and ethnicity as the hospital recorded it (one field, 33 values), grouped by
+        prefix into named groups: White; Black / African American; Hispanic / Latino; Asian;
+        American Indian / Alaska Native; Native Hawaiian / Pacific Islander; Multiple race /
+        ethnicity; Unknown (unknown, unable to obtain, declined). SOUTH AMERICAN goes to
+        Hispanic / Latino and PORTUGUESE to White, following the US federal categories. The
+        recorded value OTHER is shown as recorded "Other", in quotes. My decision: every group
+        is named and none is pooled to reach a size, so small groups appear as counts rather
+        than disappear into a merged row. Asian and Pacific Islander stay separate for the
+        same reason.
+    - **Size.** A group gets a figure only with at least 30 real patients behind the missed
+      share: coded plus judge-confirmed uncoded, each patient counted once, never scaled up by
+      the sample's weight. Below that, counts only. On a judge fail, the same rule applies to
+      coded patients for the coded rate.
+    - **Small counts.** Every count from 1 to 10 in the subgroup tables is shown as "fewer
+      than 11" (0 shows as 0), because the repo is public.
+    - **How shown.** Estimate and 95% interval per group, under an all-patients row; no
+      differences between groups and no tests (item 7). Missed share and gap rate are counted
+      in notes, the size rule in patients. Below 4x, each sample note stands for 31,202 /
+      1,000 notes.
+    - **Interval.** Patients redrawn within each part (the 1,924 coded notes, the 8,140-note
+      pool, the 1,000-note sample), 2,000 redraws, 95% percentile, with a new seed committed
+      to config before the run. A patient whose notes fall in two parts is handled separately
+      within each.
+    - **No valid answer.** A judged note without one counts neither as confirmed nor in its
+      part's uncoded total; the number left out is listed per part. Beside the main figures, a
+      worst case counts every failure as confirmed (Documented, and Documented + Possible for
+      the wider version). Same treatment as the agreement compare.
+    - **ICD era is not a subgroup.** Test is all ICD-10 (41,256 notes; 1 ICD-9, 9 with no
+      codes), and the judge ran only on test, so there is no gap figure by era anywhere.
+      Reported instead, as coding only: within train minus validation, ICD-10 admissions are
+      coded for dementia more often than ICD-9 ones, 5.4% against 3.5% (2,046 of 37,704
+      against 5,859 of 165,107), and 9.5% against 7.4% at 65 and over. Confounded: a train
+      patient's ICD-10 admissions are their later ones, further into follow-up and older.
 
 ## Next
 
-- The subgroup rules (ICD era included); then open `judge.test.output_allowed` in its own commit
+- Open `judge.test.output_allowed` in its own commit; then the agreement compare, the cross-check
+  and the sample's Documented draw, and my reads for the last two
 - Test results computed once, after all choices are final (scores already written, item 13)
 - Week 4: README results with no note text, model card, write-up, Dockerfile
 
