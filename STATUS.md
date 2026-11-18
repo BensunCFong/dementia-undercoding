@@ -526,6 +526,19 @@ run on test and checked against fresh blind reads.
       tried reported in order; each try on these 90 notes fits them a little more, so only
       the fresh blind test reads measure the judge. No speed cap; seconds per note are
       reported, and the winner's test run time is estimated before it starts.
+    - **Bake-off result, 2026-11-18** (`bakeoff-compare`, 486612e; both key fingerprints
+      matched). 90 notes, 15 Documented by me. Kappa, Documented / all four: v4 rerun 0.552 /
+      0.483 (the baseline); Qwen3.5-9B v6 0.656 / 0.514, passes; Granite 4.2 8B v6 0.656 /
+      0.446 and Gemma 4 12B v6 0.642 / 0.419, both fail on all four. My Documented found: 8 of
+      15 by v4, Qwen v6 and Granite, 9 by Gemma; false Documented: v4 3, Qwen v6 0, Granite 0,
+      Gemma 2. Median seconds per note: v4 12.9, Qwen v6 7.4, Granite 9.2, Gemma 11.0. Every
+      run answered every note. The v4 rerun matched v4's saved answers on all 90 notes.
+    - **Departure from the rule, decided 2026-11-18 after seeing the result.** By the rule,
+      Qwen v6 wins. But it found no more of my Documented notes than v4 (8 of 15); its gain
+      was fewer false Documented (3 to 0), and v4 failed on test by missing Documented notes.
+      So I revise the prompt before going to test, instead of taking the winner forward. The
+      revision is a new version (v7). Qwen v6 stays reported as the rule's winner, and this
+      departure is reported with its reason.
     - **Then:** the winner judges the test pool and sample (9,140 notes) and is checked against
       20-30 fresh blind test reads, none of them among my 60. Their count and draw, and v6's
       trust rule, are fixed before that run.
