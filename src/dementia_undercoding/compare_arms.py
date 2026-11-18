@@ -30,6 +30,10 @@ ARMS = {
     "arm 3 Qwen 9B": "arm3-qwen3.5-9b",
 }
 
+# Not a model and no score file: score = age at admission, read from the notes. A floor beyond
+# chance (decided 2026-11-08 with the drug validator, where it is the reference).
+AGE_ONLY = "age only"
+
 
 def load_scores(cfg: dict, val: pd.DataFrame, label: str) -> dict:
     """Each arm's scores lined up with val's rows. Fails if any note is missing or extra."""
@@ -44,16 +48,23 @@ def load_scores(cfg: dict, val: pd.DataFrame, label: str) -> dict:
     return out
 
 
+def all_scores(cfg: dict, val: pd.DataFrame, label: str) -> dict:
+    """load_scores plus the age-only arm. val needs an age_at_admit column."""
+    out = load_scores(cfg, val, label)
+    out[AGE_ONLY] = val["age_at_admit"].to_numpy(dtype=float)
+    return out
+
+
 def run(config_path: str | Path = "config/config.yaml", label: str = "dementia_core",
         reference: str | None = None) -> pd.DataFrame:
     cfg = load_config(config_path)
     ccfg = cfg["compare"]
     reference = reference or ccfg["reference"]
-    if reference not in ARMS:
-        raise ValueError(f"unknown reference {reference!r}; choose one of: {', '.join(ARMS)}")
-    notes = load_notes(config_path, columns=[label])           # no text column read
+    if reference not in [*ARMS, AGE_ONLY]:
+        raise ValueError(f"unknown reference {reference!r}; choose one of: {', '.join([*ARMS, AGE_ONLY])}")
+    notes = load_notes(config_path, columns=[label, "age_at_admit"])     # no text column read
     val = notes[notes["split"] == "validation"].reset_index(drop=True)
-    scores = load_scores(cfg, val, label)
+    scores = all_scores(cfg, val, label)
 
     workers = max(1, (os.cpu_count() or 2) - 2)
     table = compare(val[label], scores, val["subject_id"], reference,

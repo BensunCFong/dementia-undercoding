@@ -1,8 +1,9 @@
 # Project status
 
-As of 2026-11-16: repo public on GitHub (MIT), 183 tests locally (CI installs only core
+As of 2026-11-18: repo public on GitHub (MIT), 195 tests locally (CI installs only core
 packages, so it collects fewer). Test opened and scored, the test judge run finished, and my 60
-blind reads are done and frozen; no test metric or judge verdict has been looked at.
+blind reads are done and frozen; no test metric or judge verdict has been looked at. The drug
+validator is built and run on validation; arm 3 does not go to test.
 
 ## Results so far (validation only; no test result seen)
 
@@ -12,6 +13,7 @@ Difference = arm minus arm 2 LoRA main, with every arm scored on the same resamp
 | Arm | How it reads the note | PR-AUC [95%] | Minus LoRA main [95%] | Notes |
 |---|---|---|---|---|
 | Chance | | 0.036 | | 820 positives of 22,692 notes, 8,458 patients |
+| Age only | Age at admission, no text | 0.148 [0.125, 0.178] | -0.620 [-0.651, -0.581] | floor beyond chance (added 2026-11-18); the other arms reproduced exactly when it was added |
 | 0, regex | Explicit mentions, NegEx-style context | 0.622 [0.574, 0.664] | -0.146 [-0.176, -0.119] | any mention: flags 4.1%, precision 0.689, recall 0.784 |
 | 0+drugs | Same, plus the four dementia drugs | 0.623 [0.576, 0.666] | -0.145 [-0.177, -0.116] | drugs add almost nothing |
 | 0, first 512 tokens | Arm 2's window only | 0.572 [0.523, 0.614] | -0.196 [-0.223, -0.172] | about 5% of coded notes have their only explicit mention past token 512 |
@@ -35,6 +37,42 @@ yet validated. So PR-AUC against codes is not the whole test of which arm is mos
 LoRA's score): full note 0.622, first 512 tokens 0.572, PMH first then 512 0.610, head 128 + tail
 382 **0.621**. Head + tail keeps nearly every explicit mention. Chosen for the follow-up run, which
 matched LoRA main (above).
+
+**Drug-order validator** (`python -m dementia_undercoding.validator_rx`, run 2026-11-18; rules
+in `docs/explainers.md`, fixed before this run). Among uncoded validation notes, positive = a
+dementia-drug order in the same admission. Difference = arm minus the age-only arm, on the same
+2,000 resampled patients. Every count reproduced the 2026-11-08 count exactly; the product-code
+rule added no positives on validation.
+
+| Arm | Main [95%] | Minus age only [95%] | Hidden [95%] | Minus age only [95%] |
+|---|---|---|---|---|
+| Chance | 0.009 (193 positives, 120 patients) | | 0.004 (92 positives, 58 patients) | |
+| Age only | 0.036 [0.028, 0.048] | | 0.014 [0.009, 0.021] | |
+| 0, regex | 0.201 [0.142, 0.277] | +0.164 [+0.108, +0.237] | 0.004 [0.003, 0.006] | -0.010 [-0.015, -0.006] |
+| 0+drugs (partly checks itself) | 0.217 [0.155, 0.296] | +0.180 [+0.123, +0.256] | 0.004 [0.003, 0.006] | -0.010 [-0.015, -0.006] |
+| 0, first 512 tokens | 0.179 [0.126, 0.249] | +0.143 [+0.091, +0.209] | 0.004 [0.003, 0.006] | -0.010 [-0.015, -0.006] |
+| 1, TF-IDF + LR | 0.194 [0.140, 0.271] | +0.158 [+0.107, +0.230] | 0.014 [0.009, 0.021] | -0.000 [-0.005, +0.005] |
+| 1b, LightGBM | 0.208 [0.150, 0.287] | +0.171 [+0.117, +0.247] | 0.013 [0.009, 0.020] | -0.001 [-0.006, +0.005] |
+| 2, LoRA main | 0.193 [0.138, 0.261] | +0.157 [+0.103, +0.222] | 0.013 [0.009, 0.020] | -0.001 [-0.006, +0.006] |
+| 2, LoRA head + tail | 0.234 [0.170, 0.318] | +0.198 [+0.138, +0.276] | 0.015 [0.010, 0.023] | +0.001 [-0.005, +0.008] |
+| 3, MedGemma 1.5 4B | 0.093 [0.061, 0.140] | +0.057 [+0.026, +0.099] | 0.007 [0.005, 0.014] | -0.007 [-0.012, +0.001] |
+| 3, Qwen3.5-9B | 0.249 [0.179, 0.338] | +0.212 [+0.144, +0.300] | 0.010 [0.006, 0.017] | -0.004 [-0.010, +0.003] |
+
+Reading, against the rules written before the run:
+- Main row: every arm ranks treated, uncoded admissions far above age alone. The intervals
+  overlap heavily, so this row does not rank the arms against each other.
+- Hidden row, the implicit-language test (PLAN §6): no arm beats age only. Once a treated
+  patient's history text does not name dementia, no arm ranks them above their age. This is no
+  support for the idea from this yardstick, not a disproof: 58 patients, treated dementia only,
+  and the trained arms were taught that treated, uncoded train notes are negatives.
+- Clean row (14 notes naming a drug left out, 183 positives): scores barely move, so the arms
+  were not leaning on drug names. Arm 0 and 0+drugs become identical, as they should.
+- Sensitivity row (MCI kept, 200 positives): no change worth noting.
+- Age bands (description only): within 85+, age only falls to chance (0.039 vs 0.041); every
+  arm keeps its signal in both bands (under 85: 63 patients; 85+: 61), so the main row is not
+  age in disguise. Delirium-coded positives: 13 notes, 11 patients, a count only.
+- Saved: `data/derived/validator/validation-table.parquet` (every row and band) and
+  `validation-topk.parquet` (the top-k curves, for the Week 4 figure).
 
 ## Done
 
@@ -91,11 +129,6 @@ matched LoRA main (above).
 
 ## Decided, not yet in code
 
-- **Validator 1, dementia drug orders** (2026-11-08): design fixed before any arm is scored on
-  it; full rules in `docs/explainers.md`. Validation: 193 drug-positive uncoded notes (120
-  patients) in the main pool, 92 of them with no explicit mention (the hidden row). Age-only arm
-  as reference. The Week 3 gap-set arms are chosen (item 4 below); next: build `validator_rx.py`.
-
 - **ICD-10 in train:** train is about 19% ICD-10 (43,298 of 227,130 admissions), because a
   train patient's later admissions follow them into train. Patients never cross splits, so there
   is no leakage. Decision: keep and document; docs corrected 2026-11-07. Still to do:
@@ -127,8 +160,10 @@ my blind reads, then the remaining choices before any test result is computed.
      3, once the Week 3 rules (arm, split, cutoff) are written.
 3. **Arm 3 full validation finished** 2026-11-09: MedGemma 1.5 4B 0.447 [0.399, 0.491], Qwen3.5-9B
    0.657 [0.610, 0.700]. Qwen beats arm 0 (+0.035 [+0.012, +0.058]) and trails arm 1 (-0.073
-   [-0.099, -0.046]). Neither clears the 0.730 route of the test rule; the hidden-row route is
-   still open until the validator is built.
+   [-0.099, -0.046]). Neither clears the 0.730 route of the test rule. **Decided 2026-11-18 by
+   that rule: arm 3 does not go to test.** Neither beats age only on the drug validator's hidden
+   row (MedGemma -0.007 [-0.012, +0.001], Qwen -0.004 [-0.010, +0.003]). Their validation
+   results are reported, Qwen's main-row 0.249 included, with the rule.
 4. **Week 3 gap-set arms, decided 2026-11-09 after the code-label results and before any validator
    score:** two gap sets side by side, LightGBM (best on code labels) and LoRA main (reads words
    in context, so its extra flags are the test of the implicit-language idea). Arm 3 is not a
@@ -333,16 +368,17 @@ my blind reads, then the remaining choices before any test result is computed.
         shuffled (seed 83), for me to confirm (item 11).
       - Each writes a key, the notes and a blank reads sheet under `data/`, and refuses to
         redraw. The two read lists stay separate, as items 11 and 12 say: the sample reads
-        confirm the judge's positives and are not meant to be blind to its verdict.    - `validator_rx.py` and the age-only arm; then the arm 3 decision from the hidden row;
-      `icd_version` and subgroups.
+        confirm the judge's positives and are not meant to be blind to its verdict.
+    - Done 2026-11-18: `validator_rx.py` and the age-only arm, run on validation (results at
+      the top); the arm 3 decision (item 3: does not go to test). Still to write:
+      `icd_version` and the subgroup rules.
     - Then test results, computed once.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 ## Next
 
-- Arm 3 goes to test only under the rule in "In progress" above (about 29 h of GPU if it
-  qualifies)
+- `icd_version` and the subgroup rules; then open `judge.test.output_allowed` in its own commit
 - Test results computed once, after all choices are final (scores already written, item 13)
 - Week 4: README results with no note text, model card, write-up, Dockerfile
 

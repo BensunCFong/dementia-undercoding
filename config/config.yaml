@@ -160,6 +160,13 @@ compare:
   seed: 20261108
   ci: 0.95
 
+validator_rx:
+  # Validator 1, dementia drug orders (validator_rx.py). Rules fixed 2026-11-08 and 2026-11-16,
+  # before any arm was scored on this label; full rules in docs/explainers.md. Bootstrap: compare above.
+  age_cut: 85                     # bands: under 85 / 85+, from the positives' ages (tertile cuts 82, 87)
+  min_patients: 30                # a band is shown only with at least this many positive patients
+  out_dir: "data/derived/validator"   # the table and the top-k curves; numbers only
+
 arm3:
   # Prompted local LLM via llama.cpp (arm3_llm.py). Fixed 2026-11-08, before any arm 3 score.
   models:

@@ -273,14 +273,20 @@ precision is in the 80-90% range); its known weaknesses are part of what the com
 Every arm is scored against ICD codes, and the project is about codes that are missing. So a
 second yardstick is needed, one the arms never read and the codes do not define. The four
 dementia drugs (donepezil, rivastigmine, galantamine, memantine, with brand names) are close to
-dementia-specific and sit in `prescriptions`. Every rule below was fixed on 2026-11-08 from counts
-of labels, ages and drug orders on validation. No arm's scores had been looked at.
+dementia-specific and sit in `prescriptions`. Every rule below was fixed on 2026-11-08, with two
+additions on 2026-11-16, from counts of labels, ages, drug strings and drug orders on validation.
+No arm's scores had been looked at on either date.
 
 **The label.** Among uncoded admissions (`dementia_core` = 0), positive = at least one order for a
 dementia drug during the same admission (`hadm_id`). A dementia code on a later admission is
 validator 2's job, kept separate. Drug names are matched as text in `prescriptions.drug`; on
 2026-11-08 every matching string was checked by eye and all were genuine (generic, brand, patch,
-strength, one typo).
+strength, one typo). Added 2026-11-16: an order also counts if it carries a product code (`ndc`,
+or any of the codes in `gsn`) seen on a name-matched order anywhere in `prescriptions`. A count
+found 6 cut-off or misspelt strings ("gala", "memant", "rivas" and similar; 8 orders across
+every split) that the names miss and the codes catch; a loose spelling search found nothing
+more. None of the 8 fell in the validation pool. Arm 0's own drug list is unchanged, so arm
+0+drugs still partly checks itself.
 
 **The score.** Each arm's PR-AUC on this label, with the same patient-level paired bootstrap as the
 code label, plus a curve of the drug rate among the top *k* uncoded notes for every *k*. No
@@ -305,8 +311,12 @@ treated in hospital, so even a perfect arm will not see most real dementia throu
    left out, so mentioning the word earns nothing. Arm 0 sits at chance here by construction. This
    row is the implicit-language test of PLAN §6. "Hidden" means absent from the history sections
    the arms read, not from the whole record.
-3. **Clean:** the main row without the 11 notes that name a dementia drug in their text, so no
-   arm is credited for reading the drug name.
+3. **Clean:** the main row without every note whose history text names a dementia drug or a drug
+   class (cholinesterase inhibitor, AChEI, NMDA antagonist), positive or negative, so no arm is
+   credited for reading the drug name. On validation that is 14 notes (10 positive), leaving
+   183 positives; the class terms found none but stay in for test. Decided 2026-11-16; the
+   2026-11-08 draft said 11 notes, counted before MCI-coded admissions were dropped and
+   positives only.
 4. **Sensitivity:** MCI-coded admissions kept in.
 
 **Arms.** Arm 0 (all three variants; 0+drugs marked "partly checks itself"), arm 1, arm 1b, both
@@ -318,7 +328,9 @@ validator score means anything. Age-only is also added to the code-label table a
 **Age bands, description only.** Under 85 and 85+, chosen from the age distribution of the
 positives (tertile cuts 82 and 87; 85 is close to their median), giving about 66 and 62
 patients. A band, or any other split, is reported only with at least 30 positive patients; the
-rule was set before the counts were seen. The same bands carry to test unchanged.
+rule was set before the counts were seen. The same bands carry to test unchanged. Each band
+shows every arm's PR-AUC and interval only, with no difference from age only (decided
+2026-11-16): at about 60 patients a band, across ten arms, differences would read as tests.
 
 **Delirium.** 13 positives (11 patients) are delirium-coded: below the rule, so reported as a
 count, not a split.
@@ -342,3 +354,6 @@ shifted dates allow only approximate matching to real-world drug history.
 - Advanced dementia is often untreated (no orders at all in the 95+ group), and quiet patients
   are documented less than agitated ones. Neither is visible here.
 - Uncoded MCI treated with donepezil cannot be separated out without reading notes.
+
+**Built and run on validation 2026-11-18** (`validator_rx.py`). Every count above reproduced
+exactly. Results and their reading are in `STATUS.md`.

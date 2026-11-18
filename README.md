@@ -36,7 +36,8 @@ the result means anything. Everything here runs on my own hardware, in my own ti
 | Judge run on 9,140 test notes | Done 2026-11-11, **no verdict seen** |
 | My 60 blind reads of test notes | Done and frozen 2026-11-15 |
 | Agreement compare, judge against my reads | Built, **locked** |
-| Drug-order validator, age-only arm, subgroups | Rules partly written, code not built |
+| Drug-order validator, age-only arm | Built, run on validation 2026-11-18 |
+| ICD era, subgroup rules | Not yet written |
 | Test results | Not computed. They are computed once, after every choice above is fixed |
 
 No test result exists yet, by design. The order matters more than the speed: every rule that
@@ -165,9 +166,9 @@ is true, and would be reported as that. Everything else is a descriptive table.
 dementia but the judge did not say Documented (how often does the judge miss the obvious?), and
 every note in the random sample that the judge calls Documented (is the estimate below 4x real?).
 
-**Still to do before any test result.** Build the drug-order validator and the age-only
-reference arm, decide whether a prompted model goes to test under its rule, add the ICD era to
-the cohort and write the subgroup rules. The agreement compare is locked in config until then,
+**Still to do before any test result.** Add the ICD era to the cohort and write the subgroup
+rules. The drug-order validator and the age-only arm are built, and under its rule no prompted
+model goes to test. The agreement compare is locked in config until then,
 because its table is an early look at the gap rate and must not steer those choices.
 
 ## Pre-registered: separating dementia from delirium
@@ -198,7 +199,8 @@ dementia-specific and sit in `prescriptions`. They are never a training label. A
 admissions, each arm will be scored on how well it ranks the ones with a dementia-drug order:
 evidence from outside the codes. Rules were fixed on 2026-11-08 before any arm was scored on it
 (`docs/explainers.md`), including a row for drug-positive notes with no explicit mention and an
-age-only arm as the floor. The code is not built yet.
+age-only arm as the floor. Run on validation 2026-11-18: every arm beats age on the main row,
+none beats it on the hidden row (`STATUS.md`).
 
 **Validator 2, a later code.** A patient flagged and uncoded on one admission who carries a
 dementia code on a later one was probably under-coded the first time. Planned; no rules written
@@ -297,6 +299,7 @@ prevent that.
 python -m dementia_undercoding.arm0_regex     # likewise arm1_tfidf, arm1b_lgbm, arm2_lora
 python -m dementia_undercoding.arm3_llm --model qwen3.5-9b    # or medgemma-1.5-4b
 python -m dementia_undercoding.compare_arms   # paired bootstrap over every saved score
+python -m dementia_undercoding.validator_rx   # drug-order validator, every arm against age only
 ```
 
 **7. Test, once.** Each of these is locked or refuses to repeat itself, on purpose.
