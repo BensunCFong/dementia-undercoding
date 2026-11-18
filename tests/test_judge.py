@@ -27,6 +27,7 @@ from dementia_undercoding.judge import (
     check_evidence,
     check_output_unlocked,
     cross_check,
+    dev_key,
     draw_cross_check_reads,
     draw_sample_documented,
     draw_test_reads,
@@ -38,6 +39,7 @@ from dementia_undercoding.judge import (
     judged_test,
     load_test_answers,
     locate,
+    model_path,
     passages,
     read_my_reads,
     trim,
@@ -574,3 +576,21 @@ def test_judged_test_fails_when_answers_and_to_judge_differ(tmp_path):
         tmp_path / "parts" / "part-00001.parquet")
     bands, answers = judged_test(tmp_path)
     assert sorted(answers["hadm_id"]) == [1, 2]
+
+
+def test_model_path_keeps_v4s_model_unless_a_bakeoff_model_is_named():
+    cfg = {"arm3": {"models": {"qwen": {"path": "~/m/qwen.gguf"}}},
+           "judge": {"model": "qwen", "bakeoff": {"models": {"gemma": "~/m/gemma.gguf"}}}}
+    assert model_path(cfg, None) == "~/m/qwen.gguf"
+    assert model_path(cfg, "gemma") == "~/m/gemma.gguf"
+    with pytest.raises(KeyError):
+        model_path(cfg, "llama")
+
+
+def test_dev_key_joins_pilot_and_test_reads():
+    pilot = pd.DataFrame({"pilot_id": ["P01", "P02"], "hadm_id": [1, 2], "stratum": ["top 2x", "2x-4x"]})
+    test = pd.DataFrame({"read_id": ["T01"], "hadm_id": [3], "band": ["1x"]})
+    assert dev_key(pilot, test).to_dict("list") == {
+        "dev_id": ["P01", "P02", "T01"], "hadm_id": [1, 2, 3], "source": ["pilot", "pilot", "test"]}
+    with pytest.raises(ValueError):
+        dev_key(pilot, test.assign(hadm_id=2))          # the same note in both lists    

@@ -512,6 +512,17 @@ run on test and checked against fresh blind reads.
       agreement on the same notes; the rule for picking among passers is written before any
       run. These figures flatter every model, since the same notes shaped the rubric, and are
       never reported as agreement.
+    - **Bake-off rule, written 2026-11-18 before any bake-off answer was compared with my reads.**
+      Key: my revised pilot reads (30) and my blind test reads (60; no revised test file exists).
+      A model passes only if its kappa is strictly higher than v4's on both Documented against
+      the rest and all four verdicts. v4's figures come from a v4 run inside the bake-off (same
+      code and session), with the number of its answers that differ from v4's saved ones
+      reported beside them. A note with no valid answer counts as a disagreement. If more than
+      one passes: the highest Documented kappa, then all four, then the faster model. If none
+      passes, I revise the prompt: a new version, run under this same rule, with every version
+      tried reported in order; each try on these 90 notes fits them a little more, so only
+      the fresh blind test reads measure the judge. No speed cap; seconds per note are
+      reported, and the winner's test run time is estimated before it starts.
     - **Then:** the winner judges the test pool and sample (9,140 notes) and is checked against
       20-30 fresh blind test reads, none of them among my 60. Their count and draw, and v6's
       trust rule, are fixed before that run.

@@ -406,19 +406,28 @@ def gap_pool(cfg: dict, val: pd.DataFrame, label: str, depth: float) -> set[int]
     return pool
 
 
-def judge_notes(cfg: dict, texts: pd.DataFrame, version: str = "v4") -> pd.DataFrame:
+def judge_notes(cfg: dict, texts: pd.DataFrame, version: str = "v4",
+                model: str | None = None) -> pd.DataFrame:
     """The judge on each note (columns hadm_id, text), one at a time. One row per note."""
-    return pd.DataFrame(list(judge_rows(cfg, texts, version)))
+    return pd.DataFrame(list(judge_rows(cfg, texts, version, model)))
 
 
-def judge_rows(cfg: dict, texts: pd.DataFrame, version: str = "v4") -> Iterator[dict]:
+def model_path(cfg: dict, model: str | None) -> str:
+    """The model file: v4's own (judge.model, from arm 3's list) when model is None, else a
+    bake-off model from judge.bakeoff.models."""
+    if model is None:
+        return cfg["arm3"]["models"][cfg["judge"]["model"]]["path"]
+    return cfg["judge"]["bakeoff"]["models"][model]
+
+
+def judge_rows(cfg: dict, texts: pd.DataFrame, version: str = "v4",
+               model: str | None = None) -> Iterator[dict]:
     """The judge on each note (columns hadm_id, text), one at a time: yields one row per note
     as soon as it is judged, so a long run can save as it goes. One server for the whole run.
     texts holds whole notes; judge_text() gives each version its own input, and chars, cut,
     n_passages and the evidence check all refer to that input."""
     jcfg = cfg["judge"]
-    model_path = cfg["arm3"]["models"][jcfg["model"]]["path"]
-    with LlamaServer(model_path, port=jcfg["port"], ctx=jcfg["ctx"]) as server:
+    with LlamaServer(model_path(cfg, model), port=jcfg["port"], ctx=jcfg["ctx"]) as server:
         for hadm_id, whole in zip(texts["hadm_id"], texts["text"], strict=True):
             note, cut = judge_text(whole, version, jcfg["max_note_chars"])
             t = time.perf_counter()
@@ -1067,6 +1076,53 @@ def run_pilot_compare(config_path: str | Path = "config/config.yaml", reads: str
           f"{int((df['judge'] == 'Possible').sum())} by the judge")
     return df
 
+
+# --- the v6 bake-off (STATUS item 20; development, never reported as agreement) -----------
+# Each model judges the 90 notes I have already read (30 validation pilot notes, 60 test
+# notes) once. Answers are saved under data/ and not shown: the rule for passing and picking
+# is written before any of them is compared with my reads.
+
+
+def bakeoff_dir(cfg: dict) -> Path:
+    return Path(cfg["paths"]["judge"]) / "bakeoff"
+
+
+def dev_key(pilot_key: pd.DataFrame, reads_key: pd.DataFrame) -> pd.DataFrame:
+    """The development notes: dev_id (the pilot or read ID, P01 or T01), hadm_id and source
+    (pilot = validation, test). Fails if a note or an ID is in both lists."""
+    key = pd.concat([
+        pilot_key[["pilot_id", "hadm_id"]].rename(columns={"pilot_id": "dev_id"}).assign(source="pilot"),
+        reads_key[["read_id", "hadm_id"]].rename(columns={"read_id": "dev_id"}).assign(source="test"),
+    ], ignore_index=True)
+    if key["hadm_id"].duplicated().any() or key["dev_id"].duplicated().any():
+        raise ValueError("a note or an ID is in both the pilot and the test reads")
+    return key
+
+
+def run_bakeoff_judge(model: str, version: str = "v6",
+                      config_path: str | Path = "config/config.yaml") -> None:
+    """One model and judge version on the development notes, once: refuses to overwrite.
+    Prints timing and failures only, no verdict."""
+    cfg = load_config(config_path)
+    out = bakeoff_dir(cfg) / f"{model}-{version}.parquet"
+    if out.exists():
+        raise FileExistsError(f"{out} exists: this run is done. Delete it on purpose to rerun.")
+    key = dev_key(pd.read_parquet(pilot_dir(cfg) / "pilot-key.parquet"),
+                  pd.read_parquet(test_dir(cfg) / "reads-key.parquet"))
+    answers = judge_notes(cfg, load_whole_notes(key["hadm_id"].tolist(), config_path), version, model)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    (key.merge(answers, on="hadm_id", validate="one_to_one")
+        .assign(model=model, version=version)
+        .to_parquet(out, index=False))
+
+    sec = answers["seconds"]
+    print(f"{model}, judge {version}: {len(answers):,} notes; seconds per note median {sec.median():.1f}, "
+          f"p90 {sec.quantile(0.9):.1f}, total {sec.sum() / 60:.0f} min")
+    print(f"no valid answer: {int(answers['verdict'].isna().sum()):,}; refused as too long: "
+          f"{int(answers['rejected'].sum()):,}; cut to {cfg['judge']['max_note_chars']:,} characters: "
+          f"{int(answers['cut'].sum()):,}; made-up quotes: {int(answers['n_made_up'].sum()):,}")
+    print(f"answers saved to {out}, not shown")
+
 # --- re-checking saved answers (counts only) -------------------------------------------
 
 
@@ -1114,9 +1170,12 @@ if __name__ == "__main__":
         "test-agreement": run_test_agreement,
         "test-cross-check": run_test_cross_check,
         "test-sample-reads": run_test_sample_reads,
+        "bakeoff-judge": run_bakeoff_judge,
     }
     parser = argparse.ArgumentParser(description="The LLM judge (Week 3).")
     parser.add_argument("command", choices=list(commands), help="which step to run")
+    parser.add_argument("--model", default=None, help="bakeoff-judge: a model in judge.bakeoff.models")
+    parser.add_argument("--version", default="v6", choices=list(JUDGES), help="bakeoff-judge: judge version")
     parser.add_argument("--reads", default=None, help="pilot-compare / test-agreement: my reads file "
                         "(default pilot-reads.csv / reads-blind.csv)")
     parser.add_argument("--answers", default="pilot-judge.parquet", help="pilot-compare: judge answers file")
@@ -1125,5 +1184,9 @@ if __name__ == "__main__":
         run_pilot_compare(reads=args.reads or "pilot-reads.csv", answers=args.answers)
     elif args.command == "test-agreement":
         run_test_agreement(reads=args.reads or "reads-blind.csv")
+    elif args.command == "bakeoff-judge":
+        if args.model is None:
+            parser.error("bakeoff-judge needs --model")
+        run_bakeoff_judge(args.model, args.version)
     else:
         commands[args.command]()

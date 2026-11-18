@@ -230,3 +230,8 @@ judge:
   cross_check:                 # arm 0 cross-check, STATUS item 12 (decided 2026-11-09, before test)
     cap: 50                    # flagged notes I read at most; a random draw above that
     seed: 21                   # any fixed number, set before test was touched
+  bakeoff:                     # judge v6 bake-off, STATUS item 20 (decided 2026-11-18, after v4 failed on test)
+    models:                    # 4-bit GGUF files; all three turn thinking off through enable_thinking
+      qwen3.5-9b: "~/models/gguf/Qwen3.5-9B-Q4_K_M.gguf"           # v4's model, the same file (Unsloth's quantization)
+      gemma-4-12b: "~/models/gguf/gemma-4-12b-it-qat-q4_0.gguf"     # Google's own file, QAT Q4_0
+      granite-4.2-8b: "~/models/gguf/granite-4.2-8b-Q4_K_M.gguf"    # IBM's own file; thinks unless told not to    
