@@ -18,8 +18,11 @@ from dementia_undercoding.judge import (
     VERDICTS,
     agreement,
     agreement_rows,
+    answers_differing,
     arm_bands,
     ask,
+    bakeoff_scores,
+    bakeoff_winner,
     band_names,
     band_patient_weights,
     bands_table,
@@ -593,4 +596,65 @@ def test_dev_key_joins_pilot_and_test_reads():
     assert dev_key(pilot, test).to_dict("list") == {
         "dev_id": ["P01", "P02", "T01"], "hadm_id": [1, 2, 3], "source": ["pilot", "pilot", "test"]}
     with pytest.raises(ValueError):
-        dev_key(pilot, test.assign(hadm_id=2))          # the same note in both lists    
+        dev_key(pilot, test.assign(hadm_id=2))          # the same note in both lists
+
+
+
+
+MINE = pd.DataFrame({"dev_id": ["P01", "P02", "T01", "T02"],
+                     "mine": ["Documented", "Possible", "Documented", "None"]})
+
+
+def bakeoff_answers(model, version, verdicts, seconds=10.0):
+    return pd.DataFrame({"model": model, "version": version, "dev_id": ["P01", "P02", "T01", "T02"],
+                         "verdict": verdicts, "seconds": seconds})
+
+
+def test_bakeoff_passes_only_above_the_baseline_on_both_kappas():
+    answers = pd.concat([
+        bakeoff_answers("qwen", "v4", ["Documented", "None", "Possible", "None"]),
+        bakeoff_answers("gemma", "v6", ["Documented", "Possible", "Documented", "None"]),    # all right
+        bakeoff_answers("granite", "v6", ["Documented", "None", "Documented", "None"]),     # one wrong
+    ])
+    t = bakeoff_scores(answers, MINE, ("qwen", "v4")).set_index("model")
+    assert t.loc["gemma", "kappa_documented"] == pytest.approx(1.0)
+    assert t.loc["gemma", "kappa_all_four"] == pytest.approx(1.0)
+    assert t.loc["granite", "kappa_all_four"] > t.loc["qwen", "kappa_all_four"]
+    assert t["passes"].to_dict() == {"gemma": True, "granite": True, "qwen": False}
+    assert t.loc["qwen", "found"] == 1 and t.loc["qwen", "false_documented"] == 0
+    assert bakeoff_winner(t.reset_index())["model"] == "gemma"
+
+
+def test_bakeoff_no_answer_is_a_disagreement_and_ties_do_not_pass():
+    answers = pd.concat([
+        bakeoff_answers("qwen", "v4", ["Documented", "Possible", "Documented", "None"]),
+        bakeoff_answers("gemma", "v6", ["Documented", "Possible", "Documented", "None"]),  # ties: no pass
+        bakeoff_answers("granite", "v6", [None, "Possible", "Documented", "None"]),
+    ])
+    t = bakeoff_scores(answers, MINE, ("qwen", "v4")).set_index("model")
+    assert t.loc["granite", "no_answer"] == 1
+    assert t.loc["granite", "kappa_documented"] < 1 and t.loc["granite", "kappa_all_four"] < 1
+    assert not t["passes"].any()
+    assert bakeoff_winner(t.reset_index()) is None
+
+
+def test_bakeoff_winner_breaks_ties_by_all_four_then_speed():
+    t = pd.DataFrame({"model": ["a", "b", "c"], "kappa_documented": [0.8, 0.8, 0.8],
+                      "kappa_all_four": [0.5, 0.6, 0.6], "median_seconds": [5.0, 20.0, 12.0],
+                      "passes": [True, True, True]})
+    assert bakeoff_winner(t)["model"] == "c"
+
+
+def test_bakeoff_fails_without_the_baseline_or_with_other_notes():
+    with pytest.raises(ValueError):
+        bakeoff_scores(bakeoff_answers("gemma", "v6", ["None"] * 4), MINE, ("qwen", "v4"))
+    with pytest.raises(ValueError):
+        bakeoff_scores(bakeoff_answers("qwen", "v4", ["None"] * 4).iloc[:3], MINE, ("qwen", "v4"))
+
+
+def test_answers_differing_counts_changed_verdicts():
+    rerun = pd.DataFrame({"hadm_id": [1, 2, 3], "verdict": ["Documented", None, "None"]})
+    saved = pd.DataFrame({"hadm_id": [1, 2, 3, 4], "verdict": ["Documented", None, "Possible", "None"]})
+    assert answers_differing(rerun, saved) == 1
+    with pytest.raises(ValueError):
+        answers_differing(rerun, saved.iloc[:2])

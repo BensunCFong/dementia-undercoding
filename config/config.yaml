@@ -235,3 +235,7 @@ judge:
       qwen3.5-9b: "~/models/gguf/Qwen3.5-9B-Q4_K_M.gguf"           # v4's model, the same file (Unsloth's quantization)
       gemma-4-12b: "~/models/gguf/gemma-4-12b-it-qat-q4_0.gguf"     # Google's own file, QAT Q4_0
       granite-4.2-8b: "~/models/gguf/granite-4.2-8b-Q4_K_M.gguf"    # IBM's own file; thinks unless told not to    
+    baseline: ["qwen3.5-9b", "v4"]   # v4 rerun inside the bake-off; every v6 model must beat it on both kappas
+    key:                       # my reads, fixed before any bake-off answer was compared (STATUS item 20)
+      pilot: "pilot-reads-v6.csv"    # in the pilot folder; revised pilot reads, no verdict changed
+      test: "reads.csv"              # in the test folder; blind reads with T02, T05, T43 changed

@@ -1123,6 +1123,109 @@ def run_bakeoff_judge(model: str, version: str = "v6",
           f"{int(answers['cut'].sum()):,}; made-up quotes: {int(answers['n_made_up'].sum()):,}")
     print(f"answers saved to {out}, not shown")
 
+
+NO_ANSWER = "(no answer)"
+
+
+def bakeoff_scores(answers: pd.DataFrame, mine: pd.DataFrame, baseline: tuple[str, str]) -> pd.DataFrame:
+    """The bake-off rule (STATUS item 20), one row per model and version.
+
+    answers: model, version, dev_id, verdict (None = no valid answer), seconds.
+    mine: dev_id, mine (my verdict). A note with no valid answer counts as a disagreement on
+    both kappas. passes = both kappas strictly above the baseline's; the baseline never passes.
+    """
+    rows = []
+    for (model, version), part in answers.groupby(["model", "version"], sort=True):
+        if sorted(part["dev_id"]) != sorted(mine["dev_id"]):
+            raise ValueError(f"{model} {version}: answers and my reads list different notes")
+        df = mine.merge(part[["dev_id", "verdict", "seconds"]].rename(columns={"verdict": "judge"}),
+                        on="dev_id", validate="one_to_one")
+        me_doc, judge_doc = df["mine"] == "Documented", df["judge"] == "Documented"
+        rows.append({
+            "model": model, "version": version, "notes": len(df),
+            "no_answer": int(df["judge"].isna().sum()),
+            "kappa_documented": worst_case(df)["kappa"],
+            "kappa_all_four": cohen_kappa_score(df["mine"], df["judge"].fillna(NO_ANSWER)),
+            "my_documented": int(me_doc.sum()), "found": int((me_doc & judge_doc).sum()),
+            "false_documented": int((~me_doc & judge_doc).sum()),
+            "median_seconds": float(df["seconds"].median()),
+        })
+    table = pd.DataFrame(rows)
+    is_base = (table["model"] == baseline[0]) & (table["version"] == baseline[1])
+    if is_base.sum() != 1:
+        raise ValueError(f"baseline {baseline} not in the answers")
+    base = table[is_base].iloc[0]
+    table["passes"] = (~is_base & (table["kappa_documented"] > base["kappa_documented"])
+                       & (table["kappa_all_four"] > base["kappa_all_four"]))
+    return table
+
+
+def bakeoff_winner(table: pd.DataFrame) -> pd.Series | None:
+    """Among passers: the highest Documented kappa, then all four, then the faster. None if
+    no model passes."""
+    passers = table[table["passes"]].sort_values(["kappa_documented", "kappa_all_four", "median_seconds"],
+                                                 ascending=[False, False, True])
+    return None if passers.empty else passers.iloc[0]
+
+
+def answers_differing(rerun: pd.DataFrame, saved: pd.DataFrame) -> int:
+    """Notes where two runs (hadm_id, verdict) gave different verdicts; no answer counts as
+    its own verdict. Fails unless saved holds every rerun note."""
+    df = rerun.merge(saved, on="hadm_id", how="left", suffixes=("", "_saved"), validate="one_to_one",
+                     indicator=True)
+    if (df["_merge"] != "both").any():
+        raise ValueError("some rerun notes have no saved answer")
+    return int((df["verdict"].fillna(NO_ANSWER) != df["verdict_saved"].fillna(NO_ANSWER)).sum())
+
+
+def run_bakeoff_compare(config_path: str | Path = "config/config.yaml") -> pd.DataFrame:
+    """The bake-off answers against my reads, by the rule written before this ran (STATUS
+    item 20). Prints counts and kappas only, no note text; the table is saved under data/."""
+    cfg = load_config(config_path)
+    bcfg = cfg["judge"]["bakeoff"]
+    d = bakeoff_dir(cfg)
+    key = dev_key(pd.read_parquet(pilot_dir(cfg) / "pilot-key.parquet"),
+                  pd.read_parquet(test_dir(cfg) / "reads-key.parquet"))
+    key_files = {"pilot_id": pilot_dir(cfg) / bcfg["key"]["pilot"],
+                 "read_id": test_dir(cfg) / bcfg["key"]["test"]}
+    mine = pd.concat([read_my_reads(path, col).rename(columns={col: "dev_id"})
+                      for col, path in key_files.items()], ignore_index=True)
+    if sorted(mine["dev_id"]) != sorted(key["dev_id"]):
+        raise ValueError("my reads and the development notes differ")
+
+    baseline = tuple(bcfg["baseline"])
+    runs = [(m, "v6") for m in bcfg["models"]] + [baseline]
+    missing = [f"{m}-{v}" for m, v in runs if not (d / f"{m}-{v}.parquet").exists()]
+    if missing:
+        raise FileNotFoundError(f"bake-off runs not done yet: {', '.join(missing)}")
+    answers = pd.concat([pd.read_parquet(d / f"{m}-{v}.parquet") for m, v in runs], ignore_index=True)
+    table = bakeoff_scores(answers, mine, baseline)
+    table.to_parquet(d / "compare.parquet", index=False)
+
+    rerun = answers[(answers["model"] == baseline[0]) & (answers["version"] == baseline[1])]
+    saved = pd.concat([                                  # v4's frozen answers: the pilot run and the test run
+        pd.read_parquet(pilot_dir(cfg) / "pilot-judge-v4.parquet", columns=["hadm_id", "verdict"]),
+        load_test_answers(test_dir(cfg) / "parts")[["hadm_id", "verdict"]],
+    ], ignore_index=True)
+    saved = saved[saved["hadm_id"].isin(key["hadm_id"])]
+
+    for path in key_files.values():
+        print(f"key: {path.name}, sha256 {file_sha256(path)}")
+    print(f"{len(mine)} notes; my Documented: {int((mine['mine'] == 'Documented').sum())}; "
+          f"baseline {baseline[0]} {baseline[1]}\n")
+    cols = ["model", "version", "kappa_documented", "kappa_all_four", "found", "my_documented",
+            "false_documented", "no_answer", "median_seconds", "passes"]
+    print(table[cols].to_string(index=False, float_format=lambda x: f"{x:.3f}"), "\n")
+    print(f"{baseline[0]} {baseline[1]} rerun: {answers_differing(rerun[['hadm_id', 'verdict']], saved)} of "
+          f"{len(rerun)} verdicts differ from v4's saved answers")
+    winner = bakeoff_winner(table)
+    if winner is None:
+        print("no model passes: by the rule, the prompt is revised as a new version")
+    else:
+        print(f"winner: {winner['model']} {winner['version']}")
+    return table
+
+
 # --- re-checking saved answers (counts only) -------------------------------------------
 
 
@@ -1171,6 +1274,7 @@ if __name__ == "__main__":
         "test-cross-check": run_test_cross_check,
         "test-sample-reads": run_test_sample_reads,
         "bakeoff-judge": run_bakeoff_judge,
+        "bakeoff-compare": run_bakeoff_compare,
     }
     parser = argparse.ArgumentParser(description="The LLM judge (Week 3).")
     parser.add_argument("command", choices=list(commands), help="which step to run")
