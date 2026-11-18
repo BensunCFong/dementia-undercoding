@@ -513,7 +513,10 @@ run on test and checked against fresh blind reads.
       run. These figures flatter every model, since the same notes shaped the rubric, and are
       never reported as agreement.
     - **Bake-off rule, written 2026-11-18 before any bake-off answer was compared with my reads.**
-      Key: my revised pilot reads (30) and my blind test reads (60; no revised test file exists).
+      Key, fixed 2026-11-18 before any bake-off answer was compared: `pilot-reads-v6.csv` (my
+      revised pilot reads, no verdict changed; SHA-256 9520bc74…48dd) and `reads.csv` (my blind
+      test reads with 3 changed under the v6 rubric: T02 and T05 Acute only to Possible, T43 None
+      to Possible; SHA-256 e0edd4cc…d62c). `reads-blind.csv` stays frozen and unchanged.
       A model passes only if its kappa is strictly higher than v4's on both Documented against
       the rest and all four verdicts. v4's figures come from a v4 run inside the bake-off (same
       code and session), with the number of its answers that differ from v4's saved ones
