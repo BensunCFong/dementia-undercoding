@@ -206,8 +206,10 @@ the rate is 7.8-9.8%. The 5-9% figure was never sourced; it fits older inpatient
 adults. The cohort keeps all adults on purpose, since early-onset dementia is real. The build
 now checks the 65+ rate per split against a 5-15% sanity range. Test codes more dementia than
 train at 65+ (9.8% vs 7.8%), but the splits differ in era, coding system and follow-up at once,
-so this is not evidence that ICD-10 itself codes more dementia. Reporting results by ICD version
-(an `icd_version` column, still to add) will separate them.
+so this is not evidence that ICD-10 itself codes more dementia. Comparing ICD versions within
+train (`cohort.icd_versions`, added 2026-11-18) removes the split from the comparison but not
+age or follow-up, which still move with the version, so it narrows the question rather than
+settling it. Test is all ICD-10.
 
 ### Week 2 — the fine-tune
 

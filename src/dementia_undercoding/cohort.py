@@ -10,6 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import duckdb
+import numpy as np
+import pandas as pd
 import yaml
 
 from .codes import load_code_sets, prefix_rows
@@ -133,6 +135,30 @@ def build_cohort(
         LEFT JOIN split_bands s ON p.anchor_year_group = s.band
         WHERE p.anchor_age >= ?
     """, [min_age])
+
+
+def icd_versions(diagnoses_path: str | Path, hadm_ids) -> pd.Series:
+    """Each admission's ICD version: the highest icd_version among its codes, 9 or 10.
+
+    Lined up with hadm_ids, as nullable integers. A lookup, not a cohort column: notes.parquet is
+    not rebuilt for it (decided 2026-11-18), because the test scores, the judge's bands and my
+    blind reads are all tied to that file. Admissions with both versions count as 10 (5 notes in
+    train minus validation, none elsewhere). Admissions with no codes get no version (<NA>):
+    MIMIC's shifted dates cannot place them either side of October 2015.
+    """
+    con = duckdb.connect()
+    ids = pd.DataFrame({"hadm_id": np.asarray(hadm_ids)})
+    con.register("ids", ids[["hadm_id"]].drop_duplicates())
+    found = con.execute(f"""
+        SELECT i.hadm_id, MAX(d.icd_version) AS icd_version
+        FROM ids i
+        LEFT JOIN read_csv('{diagnoses_path}',
+                           types = {{'icd_code': 'VARCHAR', 'icd_version': 'INTEGER'}}) d
+          USING (hadm_id)
+        GROUP BY i.hadm_id
+    """).df()
+    out = ids.merge(found, on="hadm_id", how="left", validate="many_to_one")
+    return out["icd_version"].astype("Int64").rename("icd_version")
 
 
 def assert_bands_present(con, patients_path: str | Path, split_cfg: dict) -> None:

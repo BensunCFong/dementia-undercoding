@@ -11,6 +11,7 @@ from dementia_undercoding.cohort import (
     assert_unique_admissions,
     build_cohort,
     build_dx,
+    icd_versions,
     load_prefixes,
     load_split_bands,
 )
@@ -194,3 +195,13 @@ def test_prevalence(cohort_con):
     assert_prevalence(cohort_con, 65, [0.0, 1.0])
     with pytest.raises(ValueError, match="test split is 0.00%"):
         assert_prevalence(cohort_con, 65, [0.05, 1.0])
+
+def test_icd_version_is_the_highest_and_missing_without_codes(tmp_path):
+    path = tmp_path / "diagnoses_icd.csv"
+    # 108 mixes both versions; 999 has no codes at all
+    path.write_text(FAKE_DIAGNOSES + "6,108,1,2900,9\n6,108,2,F0390,10\n")
+    v = icd_versions(path, [103, 101, 108, 999, 101])
+    assert v.tolist()[:3] == [9, 10, 10]           # same order as asked, mixed counts as 10
+    assert v.isna().tolist() == [False, False, False, True, False]
+    assert v.iloc[4] == 10                         # a repeated id gets the same answer
+    assert str(v.dtype) == "Int64"

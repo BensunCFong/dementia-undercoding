@@ -1,6 +1,6 @@
 # Project status
 
-As of 2026-11-18: repo public on GitHub (MIT), 195 tests locally (CI installs only core
+As of 2026-11-18: repo public on GitHub (MIT), 196 tests locally (CI installs only core
 packages, so it collects fewer). Test opened and scored, the test judge run finished, and my 60
 blind reads are done and frozen; no test metric or judge verdict has been looked at. The drug
 validator is built and run on validation; arm 3 does not go to test.
@@ -131,9 +131,18 @@ Reading, against the rules written before the run:
 
 - **ICD-10 in train:** train is about 19% ICD-10 (43,298 of 227,130 admissions), because a
   train patient's later admissions follow them into train. Patients never cross splits, so there
-  is no leakage. Decision: keep and document; docs corrected 2026-11-07. Still to do:
-  - add `icd_version` per admission to `cohort.py` and `dataset.py`
-  - report results by era
+  is no leakage. Decision: keep and document; docs corrected 2026-11-07.
+  - Built 2026-11-18 as a lookup, not a column: `cohort.icd_versions(diagnoses_path, hadm_ids)`.
+    `notes.parquet` is not rebuilt for it, because the test scores, the judge's bands and my
+    blind reads are all tied to that file. Rule, fixed after a count of versions per admission
+    (codes and labels only): the highest version among the admission's codes; no codes, no
+    version. Notes, ICD-10 / ICD-9 / no codes: train minus validation 37,704 / 165,107 / 94 (5
+    of the ICD-10 mix both versions); validation 4,204 / 18,480 / 8; test 41,256 / 1 / 9.
+    `n_codes` matches `diagnoses_icd` for every note.
+  - Test is all ICD-10, so the era cannot split any test result. It can only be described
+    within train and validation, where version still moves with age and follow-up (a train
+    patient's ICD-10 admissions are their later ones). How it is reported goes in the subgroup
+    rules.
 
 - **Delta tables via PySpark dropped** (2026-11-08): only a Databricks-skills demonstration;
   DuckDB and Parquet already do the job. Removed from config, PLAN, README and dependencies.
@@ -370,15 +379,15 @@ my blind reads, then the remaining choices before any test result is computed.
         redraw. The two read lists stay separate, as items 11 and 12 say: the sample reads
         confirm the judge's positives and are not meant to be blind to its verdict.
     - Done 2026-11-18: `validator_rx.py` and the age-only arm, run on validation (results at
-      the top); the arm 3 decision (item 3: does not go to test). Still to write:
-      `icd_version` and the subgroup rules.
+      the top); the arm 3 decision (item 3: does not go to test); `icd_version` as a lookup
+      (2026-11-18, "ICD-10 in train" above). Still to write: the subgroup rules.
     - Then test results, computed once.
 
 Deferred: subgroup breakdown by age band, sex, insurance, race, ICD era.
 
 ## Next
 
-- `icd_version` and the subgroup rules; then open `judge.test.output_allowed` in its own commit
+- The subgroup rules (ICD era included); then open `judge.test.output_allowed` in its own commit
 - Test results computed once, after all choices are final (scores already written, item 13)
 - Week 4: README results with no note text, model card, write-up, Dockerfile
 
